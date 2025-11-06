@@ -235,6 +235,7 @@ struct SquawkDetailView: View {
             .sheet(isPresented: $showingEditSheet) {
                 EditSquawkView(squawk: squawk) {
                     onSquawkUpdated()
+                    dismiss()
                 }
             }
         }
