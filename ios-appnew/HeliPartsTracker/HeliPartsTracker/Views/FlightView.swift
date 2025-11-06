@@ -57,6 +57,14 @@ struct FlightView: View {
                     helicopterId: selectedHelicopter?.id ?? 0,
                     onHobbsScanned: { hours in
                         viewModel.updateHobbsHours(hours: hours, helicopterId: selectedHelicopter?.id ?? 0)
+                        Task {
+                            // Reload everything after Hobbs scan
+                            await helicoptersViewModel.loadHelicopters()
+                            if let helicopter = selectedHelicopter {
+                                await viewModel.loadFlights(helicopterId: helicopter.id)
+                                await viewModel.loadMaintenanceStatus(helicopterId: helicopter.id)
+                            }
+                        }
                     }
                 )
             }
@@ -66,6 +74,11 @@ struct FlightView: View {
                     onSquawkAdded: {
                         Task {
                             await viewModel.loadSquawks(helicopterId: selectedHelicopter?.id ?? 0)
+                            // Also reload helicopters and flights in case this affected anything
+                            await helicoptersViewModel.loadHelicopters()
+                            if let helicopter = selectedHelicopter {
+                                await viewModel.loadFlights(helicopterId: helicopter.id)
+                            }
                         }
                     }
                 )
@@ -76,6 +89,8 @@ struct FlightView: View {
                     onSquawkUpdated: {
                         Task {
                             await viewModel.loadSquawks(helicopterId: selectedHelicopter?.id ?? 0)
+                            // Reload helicopters in case squawk affected anything
+                            await helicoptersViewModel.loadHelicopters()
                         }
                     }
                 )

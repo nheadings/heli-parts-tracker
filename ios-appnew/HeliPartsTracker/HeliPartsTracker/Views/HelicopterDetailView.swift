@@ -106,7 +106,11 @@ struct HelicopterDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingInstallPart) {
+        .sheet(isPresented: $showingInstallPart, onDismiss: {
+            Task {
+                await viewModel.loadHelicopterParts(helicopterId: helicopter.id)
+            }
+        }) {
             InstallPartView(helicopter: helicopter)
                 .environmentObject(viewModel)
                 .environmentObject(partsViewModel)

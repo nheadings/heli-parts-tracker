@@ -137,15 +137,27 @@ struct LogbookDashboardView: View {
         .refreshable {
             await viewModel.loadDashboard(helicopterId: helicopterId)
         }
-        .sheet(isPresented: $showingTachScanner) {
+        .sheet(isPresented: $showingTachScanner, onDismiss: {
+            Task {
+                await viewModel.loadDashboard(helicopterId: helicopterId)
+            }
+        }) {
             TachScannerView(helicopterId: helicopterId)
                 .environmentObject(viewModel)
         }
-        .sheet(isPresented: $showingMaintenanceLog) {
+        .sheet(isPresented: $showingMaintenanceLog, onDismiss: {
+            Task {
+                await viewModel.loadDashboard(helicopterId: helicopterId)
+            }
+        }) {
             AddMaintenanceLogView(helicopterId: helicopterId)
                 .environmentObject(viewModel)
         }
-        .sheet(isPresented: $showingFluidLog) {
+        .sheet(isPresented: $showingFluidLog, onDismiss: {
+            Task {
+                await viewModel.loadDashboard(helicopterId: helicopterId)
+            }
+        }) {
             AddFluidLogView(helicopterId: helicopterId)
                 .environmentObject(viewModel)
         }
@@ -239,7 +251,11 @@ struct OilChangeStatusCard: View {
         }
         .buttonStyle(PlainButtonStyle())
         .shadow(color: .black.opacity(0.1), radius: 5)
-        .sheet(item: $selectedLog) { log in
+        .sheet(item: $selectedLog, onDismiss: {
+            Task {
+                await viewModel.loadDashboard(helicopterId: lastChange.helicopterId)
+            }
+        }) { log in
             AddMaintenanceLogView(helicopterId: log.helicopterId, existingLog: log)
                 .environmentObject(viewModel)
                 .id(log.id)
@@ -443,7 +459,13 @@ struct RecentFluidsCard: View {
         .background(Color(.systemBackground))
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.1), radius: 5)
-        .sheet(item: $selectedFluid) { fluid in
+        .sheet(item: $selectedFluid, onDismiss: {
+            Task {
+                if let helicopterId = fluids.first?.helicopterId {
+                    await viewModel.loadDashboard(helicopterId: helicopterId)
+                }
+            }
+        }) { fluid in
             AddFluidLogView(helicopterId: fluid.helicopterId, existingLog: fluid)
                 .environmentObject(viewModel)
                 .id(fluid.id)

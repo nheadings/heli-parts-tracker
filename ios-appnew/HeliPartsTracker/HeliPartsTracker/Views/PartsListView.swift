@@ -52,11 +52,19 @@ struct PartsListView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingAddPart) {
+            .sheet(isPresented: $showingAddPart, onDismiss: {
+                Task {
+                    await viewModel.loadParts()
+                }
+            }) {
                 AddPartView()
                     .environmentObject(viewModel)
             }
-            .sheet(isPresented: $showingQRScanner) {
+            .sheet(isPresented: $showingQRScanner, onDismiss: {
+                Task {
+                    await viewModel.loadParts()
+                }
+            }) {
                 QRScannerView()
                     .environmentObject(viewModel)
             }

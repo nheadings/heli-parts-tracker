@@ -36,26 +36,27 @@ The script will automatically:
 
 ### Option 2: Manual Commands (Copy-Paste)
 
+**SSH Credentials:**
+- Host: `192.168.68.6`
+- Username: `heli-parts-backend`
+- Password: `Mornan540`
+
 Open Terminal and run these one by one:
 
 ```bash
 # Navigate to deployment package
 cd /Users/normanheadings/heli-parts-tracker/deployment-package
 
-# Copy files (enter password for each)
+# Copy files (enter password: Mornan540)
 scp flights.js heli-parts-backend@192.168.68.6:backend/routes/
 scp squawks.js heli-parts-backend@192.168.68.6:backend/routes/
 scp server.js heli-parts-backend@192.168.68.6:backend/
-scp flights-squawks-migration.sql heli-parts-backend@192.168.68.6:backend/database/
-scp run-flights-migration.sh heli-parts-backend@192.168.68.6:backend/
 
-# SSH to server
+# SSH to server (password: Mornan540)
 ssh heli-parts-backend@192.168.68.6
 
 # On server, run these:
 cd backend
-chmod +x run-flights-migration.sh
-./run-flights-migration.sh
 pkill -f "node.*server.js"
 npm start
 ```
@@ -70,21 +71,17 @@ If you prefer a graphical interface:
 2. **Connect to server**:
    - Host: `192.168.68.6`
    - Username: `heli-parts-backend`
-   - Password: [your password]
+   - Password: `Mornan540`
    - Port: `22`
 
 3. **Upload files**:
    - `flights.js` → `backend/routes/`
    - `squawks.js` → `backend/routes/`
    - `server.js` → `backend/`
-   - `flights-squawks-migration.sql` → `backend/database/`
-   - `run-flights-migration.sh` → `backend/`
 
-4. **SSH to server** and run:
+4. **SSH to server** (password: `Mornan540`) and run:
    ```bash
    cd backend
-   chmod +x run-flights-migration.sh
-   ./run-flights-migration.sh
    pkill -f "node.*server.js"
    npm start
    ```
@@ -102,15 +99,8 @@ Files included:
 - ✅ `flights.js` (5.5 KB)
 - ✅ `squawks.js` (7.2 KB)
 - ✅ `server.js` (2.3 KB)
-- ✅ `flights-squawks-migration.sql` (3.3 KB)
-- ✅ `run-flights-migration.sh` (502 bytes)
 - ✅ `DEPLOY.sh` (automated deployment script)
 - ✅ `README.md` (detailed instructions)
-
-Also created compressed archive:
-```
-/Users/normanheadings/heli-parts-tracker/backend-deployment.tar.gz
-```
 
 ---
 
@@ -159,9 +149,9 @@ Should include:
 
 ---
 
-## 🎯 What the Migration Does
+## 🎯 Database Tables
 
-The migration creates two new tables:
+The backend now includes these tables:
 
 ### `flights` Table
 Stores flight records with:
@@ -196,19 +186,9 @@ ssh heli-parts-backend@192.168.68.6 "echo Connected"
 ```
 
 **If fails**:
-- Check you have the correct password
+- Password is: `Mornan540`
 - Make sure you're on the same network as server
 - Verify username is `heli-parts-backend`
-
-### Migration Says "Table Already Exists"
-
-**This is OK!** It means the tables were already created. Skip to restart step:
-```bash
-ssh heli-parts-backend@192.168.68.6
-cd backend
-pkill -f "node.*server.js"
-npm start
-```
 
 ### Server Won't Start
 

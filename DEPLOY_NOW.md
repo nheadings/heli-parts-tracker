@@ -8,6 +8,13 @@ Your app is installed on **Norman's iPhone 17 Pro Max** and ready to use!
 
 ## Deploy Backend - Choose One Option:
 
+**SSH Credentials:**
+- Host: `192.168.68.6`
+- Username: `heli-parts-backend`
+- Password: `Mornan540`
+
+---
+
 ### Option A: Automatic Script (if you have SSH access)
 
 ```bash
@@ -16,7 +23,7 @@ chmod +x deploy-backend-now.sh
 ./deploy-backend-now.sh
 ```
 
-Enter your password when prompted.
+Enter password: `Mornan540` when prompted.
 
 ---
 
@@ -24,7 +31,7 @@ Enter your password when prompted.
 
 #### Step 1: Copy Files to Server
 
-Open Terminal and run these commands one by one:
+Open Terminal and run these commands one by one (password: `Mornan540`):
 
 ```bash
 cd /Users/normanheadings/heli-parts-tracker
@@ -35,32 +42,15 @@ scp backend/routes/squawks.js heli-parts-backend@192.168.68.6:backend/routes/
 
 # Copy updated server.js
 scp backend/server.js heli-parts-backend@192.168.68.6:backend/
-
-# Copy migration files
-scp backend/database/flights-squawks-migration.sql heli-parts-backend@192.168.68.6:backend/database/
-scp backend/run-flights-migration.sh heli-parts-backend@192.168.68.6:backend/
 ```
 
 #### Step 2: SSH to Server
 
 ```bash
-ssh heli-parts-backend@192.168.68.6
+ssh heli-parts-backend@192.168.68.6  # password: Mornan540
 ```
 
-#### Step 3: Run Migration (on server)
-
-```bash
-cd backend
-chmod +x run-flights-migration.sh
-./run-flights-migration.sh
-```
-
-Expected output:
-```
-✅ Migration completed successfully!
-```
-
-#### Step 4: Restart Server (on server)
+#### Step 3: Restart Server (on server)
 
 ```bash
 # Stop current server
@@ -76,7 +66,7 @@ Server should start and show:
 📡 Server running on http://localhost:3000
 ```
 
-#### Step 5: Verify (on server)
+#### Step 4: Verify (on server)
 
 ```bash
 curl http://localhost:3000/health
@@ -91,17 +81,15 @@ Should return:
 
 ### Option C: Copy-Paste All Commands
 
-If you want to do it all at once:
+If you want to do it all at once (password: `Mornan540`):
 
 ```bash
 cd /Users/normanheadings/heli-parts-tracker && \
 scp backend/routes/flights.js heli-parts-backend@192.168.68.6:backend/routes/ && \
 scp backend/routes/squawks.js heli-parts-backend@192.168.68.6:backend/routes/ && \
 scp backend/server.js heli-parts-backend@192.168.68.6:backend/ && \
-scp backend/database/flights-squawks-migration.sql heli-parts-backend@192.168.68.6:backend/database/ && \
-scp backend/run-flights-migration.sh heli-parts-backend@192.168.68.6:backend/ && \
 echo "✅ Files copied! Now SSH to server..." && \
-ssh heli-parts-backend@192.168.68.6 "cd backend && chmod +x run-flights-migration.sh && ./run-flights-migration.sh && pkill -f 'node.*server.js' ; nohup npm start > server.log 2>&1 &"
+ssh heli-parts-backend@192.168.68.6 "cd backend && pkill -f 'node.*server.js' ; nohup npm start > server.log 2>&1 &"
 ```
 
 ---
@@ -130,14 +118,16 @@ Once backend is deployed:
 
 ### "Permission denied" when copying files
 
-Set up SSH key or use password when prompted:
+Use password: `Mornan540` when prompted.
+
+Or set up SSH key for easier access:
 
 ```bash
 # Generate SSH key (if you don't have one)
 ssh-keygen -t rsa
 
 # Copy to server
-ssh-copy-id heli-parts-backend@192.168.68.6
+ssh-copy-id heli-parts-backend@192.168.68.6  # password: Mornan540
 ```
 
 ### Can't find app on iPhone
@@ -171,7 +161,6 @@ tail -f server.log
 | iOS App Build | ✅ Complete |
 | iOS App Installed | ✅ On iPhone 17 Pro Max |
 | Backend Files | ✅ Ready |
-| Database Migration | ⏳ Pending (run script) |
 | Backend Running | ⏳ Pending (restart server) |
 
 ---
@@ -184,13 +173,12 @@ tail -f server.log
 - ✅ Backend code ready to deploy
 
 **What's Next:**
-- 📤 Copy files to server (5 commands above)
-- 🔄 Run migration on server
+- 📤 Copy files to server (3 commands above)
 - 🚀 Restart backend server
 - ✅ Start using the app!
 
 ---
 
-**Need the server password?** Check your server access credentials or contact your server admin.
+**SSH Password:** `Mornan540`
 
 **Ready to go?** Run the commands above and you're all set! 🚁✨

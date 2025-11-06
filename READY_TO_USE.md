@@ -18,28 +18,29 @@
 
 ### Step 1: Deploy Backend (5 minutes)
 
+**SSH Credentials:**
+- Host: `192.168.68.6`
+- Username: `heli-parts-backend`
+- Password: `Mornan540`
+
 Open Terminal and run:
 
 ```bash
 cd /Users/normanheadings/heli-parts-tracker
 
-# Copy all files at once
+# Copy all files at once (password: Mornan540)
 scp backend/routes/flights.js heli-parts-backend@192.168.68.6:backend/routes/
 scp backend/routes/squawks.js heli-parts-backend@192.168.68.6:backend/routes/
 scp backend/server.js heli-parts-backend@192.168.68.6:backend/
-scp backend/database/flights-squawks-migration.sql heli-parts-backend@192.168.68.6:backend/database/
-scp backend/run-flights-migration.sh heli-parts-backend@192.168.68.6:backend/
 ```
 
 ### Step 2: SSH and Setup (on server)
 
 ```bash
-ssh heli-parts-backend@192.168.68.6
+ssh heli-parts-backend@192.168.68.6  # password: Mornan540
 
 # Run these on the server:
 cd backend
-chmod +x run-flights-migration.sh
-./run-flights-migration.sh
 pkill -f "node.*server.js"
 npm start
 ```
@@ -183,6 +184,10 @@ Once deployed, test these features:
 1. Verify server running: `curl http://192.168.68.6:3000/health`
 2. Check iPhone on same network
 3. Check firewall allows port 3000
+
+**SSH Info:**
+- Username: `heli-parts-backend`
+- Password: `Mornan540`
 
 ### Need to Rebuild?
 ```bash

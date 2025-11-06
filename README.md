@@ -146,6 +146,11 @@ Main tables:
 
 Backend is deployed on `192.168.68.6`:
 
+**SSH Credentials:**
+- Host: `192.168.68.6`
+- Username: `heli-parts-backend`
+- Password: `Mornan540`
+
 ```bash
 ssh heli-parts-backend@192.168.68.6
 cd backend

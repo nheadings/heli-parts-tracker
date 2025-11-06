@@ -126,6 +126,14 @@ struct LogbookView: View {
         .task {
             await helicoptersViewModel.loadHelicopters()
         }
+        .onChange(of: helicoptersViewModel.helicopters) {
+            // When helicopters data changes (e.g., from Hobbs update), reload dashboard
+            if let helicopterId = selectedHelicopterId {
+                Task {
+                    await viewModel.loadDashboard(helicopterId: helicopterId)
+                }
+            }
+        }
     }
 }
 
