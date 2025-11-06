@@ -9,6 +9,7 @@ struct FlightView: View {
     @State private var showingHobbsScanner = false
     @State private var showingAddSquawk = false
     @State private var showingSquawkDetails: Squawk? = nil
+    @State private var showingSquawksSheet = false
 
     var body: some View {
         NavigationView {
@@ -21,8 +22,8 @@ struct FlightView: View {
                     // Aircraft Banner
                     aircraftBanner
 
-                    // Squawks Section
-                    squawksSection
+                    // Flights Section
+                    flightsSection
                 }
             }
             .navigationTitle("Flight Operations")
@@ -55,10 +56,19 @@ struct FlightView: View {
                     }
                 )
             }
+            .sheet(isPresented: $showingSquawksSheet) {
+                SquawksSheetView(
+                    viewModel: viewModel,
+                    helicopterId: selectedHelicopter?.id ?? 0,
+                    showingAddSquawk: $showingAddSquawk,
+                    showingSquawkDetails: $showingSquawkDetails
+                )
+            }
         }
         .task {
             await helicoptersViewModel.loadHelicopters()
             if let helicopter = selectedHelicopter {
+                await viewModel.loadFlights(helicopterId: helicopter.id)
                 await viewModel.loadSquawks(helicopterId: helicopter.id)
                 await viewModel.loadMaintenanceStatus(helicopterId: helicopter.id)
             }
@@ -66,6 +76,7 @@ struct FlightView: View {
         .onChange(of: selectedHelicopterIndex) { _ in
             Task {
                 if let helicopter = selectedHelicopter {
+                    await viewModel.loadFlights(helicopterId: helicopter.id)
                     await viewModel.loadSquawks(helicopterId: helicopter.id)
                     await viewModel.loadMaintenanceStatus(helicopterId: helicopter.id)
                 }
@@ -82,15 +93,15 @@ struct FlightView: View {
 
     private var aircraftBanner: some View {
         VStack(spacing: 12) {
-            // Aircraft Selector
+            // Aircraft Selector - Larger and Bolder
             Picker("Aircraft", selection: $selectedHelicopterIndex) {
                 ForEach(Array(helicoptersViewModel.helicopters.enumerated()), id: \.element.id) { index, helicopter in
                     Text(helicopter.tailNumber).tag(index)
                 }
             }
             .pickerStyle(.menu)
-            .font(.title2)
-            .fontWeight(.bold)
+            .font(.system(size: 32, weight: .heavy))
+            .foregroundColor(.primary)
 
             // Maintenance Status Indicators
             HStack(spacing: 16) {
@@ -110,17 +121,8 @@ struct FlightView: View {
             }
             .padding(.horizontal)
 
-            // Action Buttons
+            // Action Buttons (Swapped order)
             HStack(spacing: 12) {
-                Button(action: { showingHobbsScanner = true }) {
-                    Label("Scan Hobbs", systemImage: "camera.fill")
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                }
-
                 Button(action: { showingAddSquawk = true }) {
                     Label("Add Squawk", systemImage: "exclamationmark.triangle.fill")
                         .frame(maxWidth: .infinity)
@@ -129,6 +131,32 @@ struct FlightView: View {
                         .foregroundColor(.white)
                         .cornerRadius(10)
                 }
+
+                Button(action: { showingHobbsScanner = true }) {
+                    Label("Scan Hobbs", systemImage: "camera.fill")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+            }
+            .padding(.horizontal)
+
+            // View Squawks Button
+            Button(action: { showingSquawksSheet = true }) {
+                HStack {
+                    Image(systemName: "list.bullet.rectangle")
+                        .font(.headline)
+                    Text("View Squawks")
+                        .font(.headline)
+                    Spacer()
+                    Image(systemName: "chevron.up")
+                }
+                .padding()
+                .background(Color(.secondarySystemGroupedBackground))
+                .foregroundColor(.primary)
+                .cornerRadius(10)
             }
             .padding(.horizontal)
         }
@@ -176,6 +204,125 @@ struct FlightView: View {
         } else {
             return .green
         }
+    }
+
+    // MARK: - Flights Section
+
+    private var flightsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Section Header
+            HStack {
+                Text("Recent Flights")
+                    .font(.headline)
+                    .padding()
+
+                Spacer()
+            }
+            .background(Color(.systemGroupedBackground))
+
+            if viewModel.isLoading {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewModel.flights.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "airplane")
+                        .font(.system(size: 60))
+                        .foregroundColor(.gray)
+                    Text("No Flights Logged")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                    Text("Scan the Hobbs meter to log a flight")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 1) {
+                        ForEach(viewModel.flights) { flight in
+                            flightRow(flight: flight)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func flightRow(flight: Flight) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let departureTime = flight.departureTime {
+                        Text(formatDate(departureTime))
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                    }
+
+                    HStack(spacing: 12) {
+                        if let hobbsStart = flight.hobbsStart {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Start")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Text(String(format: "%.1f", hobbsStart))
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                            }
+                        }
+
+                        Image(systemName: "arrow.right")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+
+                        if let hobbsEnd = flight.hobbsEnd {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("End")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Text(String(format: "%.1f", hobbsEnd))
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                            }
+                        }
+
+                        if let flightTime = flight.flightTime {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Flight Time")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Text(String(format: "%.1f hrs", flightTime))
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                    }
+
+                    if let pilotName = flight.pilotName {
+                        Text("Pilot: \(pilotName)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Spacer()
+            }
+            .padding()
+        }
+        .background(Color(.secondarySystemGroupedBackground))
+    }
+
+    private func formatDate(_ dateString: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        guard let date = formatter.date(from: dateString) else {
+            return dateString
+        }
+
+        let displayFormatter = DateFormatter()
+        displayFormatter.dateStyle = .medium
+        displayFormatter.timeStyle = .short
+        return displayFormatter.string(from: date)
     }
 
     // MARK: - Squawks Section
@@ -319,17 +466,6 @@ struct FlightView: View {
         }
     }
 
-    private func formatDate(_ dateString: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        guard let date = formatter.date(from: dateString) else {
-            return dateString
-        }
-
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateStyle = .short
-        displayFormatter.timeStyle = .none
-        return displayFormatter.string(from: date)
-    }
 }
 
 // MARK: - Flight ViewModel
@@ -337,12 +473,21 @@ struct FlightView: View {
 @MainActor
 class FlightViewModel: ObservableObject {
     @Published var squawks: [Squawk] = []
+    @Published var flights: [Flight] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
 
     // Maintenance status
     @Published var hoursUntilOilChange: Double?
     @Published var hoursUntilFuelLineAD: Double?
+
+    func loadFlights(helicopterId: Int) async {
+        do {
+            flights = try await APIService.shared.getFlights(helicopterId: helicopterId, limit: 20)
+        } catch {
+            print("Error loading flights: \(error)")
+        }
+    }
 
     func loadSquawks(helicopterId: Int) async {
         isLoading = true
@@ -380,5 +525,182 @@ class FlightViewModel: ObservableObject {
 
     func updateHobbsHours(hours: Double, helicopterId: Int) {
         // This will be implemented when we add the Hobbs scanning functionality
+    }
+}
+
+// MARK: - Squawks Sheet View
+
+struct SquawksSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var viewModel: FlightViewModel
+    let helicopterId: Int
+    @Binding var showingAddSquawk: Bool
+    @Binding var showingSquawkDetails: Squawk?
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                // Add Squawk Button
+                Button(action: {
+                    dismiss()
+                    showingAddSquawk = true
+                }) {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title2)
+                        Text("Add New Squawk")
+                            .font(.headline)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.orange)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                }
+                .padding()
+
+                // Squawks List
+                if viewModel.isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if viewModel.squawks.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle")
+                            .font(.system(size: 60))
+                            .foregroundColor(.green)
+                        Text("No Squawks")
+                            .font(.title3)
+                            .foregroundColor(.secondary)
+                        Text("Aircraft is clear for operation")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            // Active Squawks
+                            if !activeSquawks.isEmpty {
+                                Section(header: sectionHeader(title: "Active Squawks")) {
+                                    ForEach(activeSquawks) { squawk in
+                                        squawkRow(squawk: squawk)
+                                            .onTapGesture {
+                                                dismiss()
+                                                showingSquawkDetails = squawk
+                                            }
+                                    }
+                                }
+                            }
+
+                            // Fixed Squawks
+                            if !fixedSquawks.isEmpty {
+                                Section(header: sectionHeader(title: "Fixed")) {
+                                    ForEach(fixedSquawks) { squawk in
+                                        squawkRow(squawk: squawk)
+                                            .opacity(0.6)
+                                            .onTapGesture {
+                                                dismiss()
+                                                showingSquawkDetails = squawk
+                                            }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Squawks")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private var activeSquawks: [Squawk] {
+        viewModel.squawks.filter { $0.status == .active || $0.status == .deferred }
+    }
+
+    private var fixedSquawks: [Squawk] {
+        viewModel.squawks.filter { $0.status == .fixed }
+    }
+
+    private func sectionHeader(title: String) -> some View {
+        Text(title)
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .background(Color(.systemGroupedBackground))
+    }
+
+    private func squawkRow(squawk: Squawk) -> some View {
+        HStack(spacing: 12) {
+            // Severity Indicator
+            Circle()
+                .fill(severityColor(squawk.severity))
+                .frame(width: 12, height: 12)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(squawk.title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+
+                if let description = squawk.description, !description.isEmpty {
+                    Text(description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+
+                HStack {
+                    if let reportedByName = squawk.reportedByName {
+                        Text(reportedByName)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Text(formatDate(squawk.reportedAt))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+    }
+
+    private func severityColor(_ severity: SquawkSeverity) -> Color {
+        switch severity {
+        case .routine:
+            return .gray
+        case .caution:
+            return .orange
+        case .urgent:
+            return .red
+        }
+    }
+
+    private func formatDate(_ dateString: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        guard let date = formatter.date(from: dateString) else {
+            return dateString
+        }
+
+        let displayFormatter = DateFormatter()
+        displayFormatter.dateStyle = .short
+        displayFormatter.timeStyle = .short
+        return displayFormatter.string(from: date)
     }
 }
