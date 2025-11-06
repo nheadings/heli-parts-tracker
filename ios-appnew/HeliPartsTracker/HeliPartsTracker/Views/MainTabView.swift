@@ -25,7 +25,8 @@ struct MainTabView: View {
                     Label("Logbook", systemImage: "book.closed")
                 }
 
-            AlertsView()
+            FlightView()
+                .environmentObject(helicoptersViewModel)
                 .tabItem {
                     Label("Flights", systemImage: "airplane.departure")
                 }

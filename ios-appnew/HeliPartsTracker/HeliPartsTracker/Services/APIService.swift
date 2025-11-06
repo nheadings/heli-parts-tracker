@@ -265,6 +265,74 @@ class APIService {
         try await performRequest(endpoint: "/logbook/helicopters/\(helicopterId)/dashboard", method: "GET")
     }
 
+    // MARK: - Flights
+
+    func getFlights(helicopterId: Int, limit: Int = 50) async throws -> [Flight] {
+        try await performRequest(endpoint: "/flights/helicopters/\(helicopterId)/flights?limit=\(limit)", method: "GET")
+    }
+
+    func getFlight(id: Int) async throws -> Flight {
+        try await performRequest(endpoint: "/flights/flights/\(id)", method: "GET")
+    }
+
+    func createFlight(helicopterId: Int, flight: FlightCreate) async throws -> Flight {
+        try await performRequest(endpoint: "/flights/helicopters/\(helicopterId)/flights", method: "POST", body: flight)
+    }
+
+    func updateFlight(id: Int, flight: FlightCreate) async throws -> Flight {
+        try await performRequest(endpoint: "/flights/flights/\(id)", method: "PUT", body: flight)
+    }
+
+    func deleteFlight(id: Int) async throws {
+        let _: EmptyResponse = try await performRequest(endpoint: "/flights/flights/\(id)", method: "DELETE")
+    }
+
+    // MARK: - Squawks
+
+    func getSquawks(helicopterId: Int, status: String? = nil, severity: String? = nil) async throws -> [Squawk] {
+        var endpoint = "/squawks/helicopters/\(helicopterId)/squawks"
+        var queryParams: [String] = []
+
+        if let status = status {
+            queryParams.append("status=\(status)")
+        }
+        if let severity = severity {
+            queryParams.append("severity=\(severity)")
+        }
+
+        if !queryParams.isEmpty {
+            endpoint += "?" + queryParams.joined(separator: "&")
+        }
+
+        return try await performRequest(endpoint: endpoint, method: "GET")
+    }
+
+    func getSquawk(id: Int) async throws -> Squawk {
+        try await performRequest(endpoint: "/squawks/squawks/\(id)", method: "GET")
+    }
+
+    func createSquawk(helicopterId: Int, squawk: SquawkCreate) async throws -> Squawk {
+        try await performRequest(endpoint: "/squawks/helicopters/\(helicopterId)/squawks", method: "POST", body: squawk)
+    }
+
+    func updateSquawk(id: Int, squawk: SquawkUpdate) async throws -> Squawk {
+        try await performRequest(endpoint: "/squawks/squawks/\(id)", method: "PUT", body: squawk)
+    }
+
+    func markSquawkFixed(id: Int, fixNotes: String?) async throws -> Squawk {
+        let body = SquawkFixRequest(fixNotes: fixNotes)
+        return try await performRequest(endpoint: "/squawks/squawks/\(id)/fix", method: "PUT", body: body)
+    }
+
+    func updateSquawkStatus(id: Int, status: String) async throws -> Squawk {
+        let body = SquawkStatusUpdate(status: status)
+        return try await performRequest(endpoint: "/squawks/squawks/\(id)/status", method: "PUT", body: body)
+    }
+
+    func deleteSquawk(id: Int) async throws {
+        let _: EmptyResponse = try await performRequest(endpoint: "/squawks/squawks/\(id)", method: "DELETE")
+    }
+
     // MARK: - Generic Request
 
     private func performRequest<T: Decodable>(endpoint: String, method: String, body: Encodable? = nil) async throws -> T {

@@ -24,6 +24,8 @@ const helicoptersRoutes = require('./routes/helicopters');
 const installationsRoutes = require('./routes/installations');
 const alertsRoutes = require('./routes/alerts');
 const logbookRoutes = require('./routes/logbook');
+const flightsRoutes = require('./routes/flights');
+const squawksRoutes = require('./routes/squawks');
 
 // API routes
 app.use('/api/auth', authRoutes);
@@ -32,6 +34,8 @@ app.use('/api/helicopters', helicoptersRoutes);
 app.use('/api/installations', installationsRoutes);
 app.use('/api/alerts', alertsRoutes);
 app.use('/api/logbook', logbookRoutes);
+app.use('/api/flights', flightsRoutes);
+app.use('/api/squawks', squawksRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -48,7 +52,10 @@ app.get('/', (req, res) => {
       parts: '/api/parts',
       helicopters: '/api/helicopters',
       installations: '/api/installations',
-      alerts: '/api/alerts'
+      alerts: '/api/alerts',
+      logbook: '/api/logbook',
+      flights: '/api/flights',
+      squawks: '/api/squawks'
     }
   });
 });
