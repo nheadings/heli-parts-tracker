@@ -8,6 +8,7 @@ struct Helicopter: Codable, Identifiable, Hashable {
     let yearManufactured: Int?
     let serialNumber: String?
     let status: String?
+    let currentHours: Double?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -16,6 +17,25 @@ struct Helicopter: Codable, Identifiable, Hashable {
         case yearManufactured = "year_manufactured"
         case serialNumber = "serial_number"
         case status
+        case currentHours = "current_hours"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        tailNumber = try container.decode(String.self, forKey: .tailNumber)
+        model = try container.decode(String.self, forKey: .model)
+        manufacturer = try container.decodeIfPresent(String.self, forKey: .manufacturer)
+        yearManufactured = try container.decodeIfPresent(Int.self, forKey: .yearManufactured)
+        serialNumber = try container.decodeIfPresent(String.self, forKey: .serialNumber)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+
+        // Handle current_hours as either String or Double
+        if let hoursString = try? container.decodeIfPresent(String.self, forKey: .currentHours) {
+            currentHours = Double(hoursString)
+        } else {
+            currentHours = try container.decodeIfPresent(Double.self, forKey: .currentHours)
+        }
     }
 }
 
