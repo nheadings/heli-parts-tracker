@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS helicopters (
     model VARCHAR(50) NOT NULL,
     manufacturer VARCHAR(50),
     year INTEGER,
+    current_hours DECIMAL(10, 2), -- current Hobbs hours
     status VARCHAR(20) DEFAULT 'active', -- active, maintenance, retired
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
