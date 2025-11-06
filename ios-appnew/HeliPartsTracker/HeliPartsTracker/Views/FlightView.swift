@@ -27,7 +27,31 @@ struct FlightView: View {
                 }
             }
             .navigationTitle("Flight Operations")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Flight Operations")
+                        .font(.system(size: 28, weight: .bold))
+                }
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if let currentHours = selectedHelicopter?.currentHours, currentHours > 0 {
+                        VStack(spacing: 1) {
+                            Text("Hobbs")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(String(format: "%.1f", currentHours))
+                                .font(.system(size: 22, weight: .bold))
+                                .foregroundColor(.blue)
+                        }
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 10)
+                        .background(Color.blue.opacity(0.1))
+                        .cornerRadius(8)
+                    }
+                }
+            }
             .sheet(isPresented: $showingHobbsScanner) {
                 HobbsScannerView(
                     helicopterId: selectedHelicopter?.id ?? 0,
@@ -100,27 +124,8 @@ struct FlightView: View {
                 }
             }
             .pickerStyle(.menu)
-            .font(.system(size: 32, weight: .heavy))
+            .font(.system(size: 42, weight: .heavy))
             .foregroundColor(.primary)
-
-            // Current Hobbs Reading
-            if let currentHours = selectedHelicopter?.currentHours, currentHours > 0 {
-                VStack(spacing: 4) {
-                    Text("Current Hobbs")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(String(format: "%.1f", currentHours))
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(.blue)
-                    Text("hours")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 20)
-                .background(Color.blue.opacity(0.1))
-                .cornerRadius(12)
-            }
 
             // Maintenance Status Indicators
             HStack(spacing: 16) {
