@@ -118,14 +118,24 @@ struct FlightView: View {
     private var aircraftBanner: some View {
         VStack(spacing: 12) {
             // Aircraft Selector - Larger and Bolder
-            Picker("Aircraft", selection: $selectedHelicopterIndex) {
+            Menu {
                 ForEach(Array(helicoptersViewModel.helicopters.enumerated()), id: \.element.id) { index, helicopter in
-                    Text(helicopter.tailNumber).tag(index)
+                    Button(action: {
+                        selectedHelicopterIndex = index
+                    }) {
+                        Text(helicopter.tailNumber)
+                    }
+                }
+            } label: {
+                HStack {
+                    Text(selectedHelicopter?.tailNumber ?? "Select Aircraft")
+                        .font(.system(size: 42, weight: .heavy))
+                        .foregroundColor(.blue)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.secondary)
                 }
             }
-            .pickerStyle(.menu)
-            .font(.system(size: 42, weight: .heavy))
-            .foregroundColor(.primary)
 
             // Maintenance Status Indicators
             HStack(spacing: 16) {
