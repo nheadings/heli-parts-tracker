@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 class APIService {
     static let shared = APIService()
@@ -268,29 +269,29 @@ class APIService {
     // MARK: - Flights
 
     func getFlights(helicopterId: Int, limit: Int = 50) async throws -> [Flight] {
-        try await performRequest(endpoint: "/helicopters/\(helicopterId)/flights?limit=\(limit)", method: "GET")
+        try await performRequest(endpoint: "/flights/helicopters/\(helicopterId)/flights?limit=\(limit)", method: "GET")
     }
 
     func getFlight(id: Int) async throws -> Flight {
-        try await performRequest(endpoint: "/flights/\(id)", method: "GET")
+        try await performRequest(endpoint: "/flights/flights/\(id)", method: "GET")
     }
 
     func createFlight(helicopterId: Int, flight: FlightCreate) async throws -> Flight {
-        try await performRequest(endpoint: "/helicopters/\(helicopterId)/flights", method: "POST", body: flight)
+        try await performRequest(endpoint: "/flights/helicopters/\(helicopterId)/flights", method: "POST", body: flight)
     }
 
     func updateFlight(id: Int, flight: FlightCreate) async throws -> Flight {
-        try await performRequest(endpoint: "/flights/\(id)", method: "PUT", body: flight)
+        try await performRequest(endpoint: "/flights/flights/\(id)", method: "PUT", body: flight)
     }
 
     func deleteFlight(id: Int) async throws {
-        let _: EmptyResponse = try await performRequest(endpoint: "/flights/\(id)", method: "DELETE")
+        let _: EmptyResponse = try await performRequest(endpoint: "/flights/flights/\(id)", method: "DELETE")
     }
 
     // MARK: - Squawks
 
     func getSquawks(helicopterId: Int, status: String? = nil, severity: String? = nil) async throws -> [Squawk] {
-        var endpoint = "/helicopters/\(helicopterId)/squawks"
+        var endpoint = "/squawks/helicopters/\(helicopterId)/squawks"
         var queryParams: [String] = []
 
         if let status = status {
@@ -308,29 +309,87 @@ class APIService {
     }
 
     func getSquawk(id: Int) async throws -> Squawk {
-        try await performRequest(endpoint: "/squawks/\(id)", method: "GET")
+        try await performRequest(endpoint: "/squawks/squawks/\(id)", method: "GET")
     }
 
     func createSquawk(helicopterId: Int, squawk: SquawkCreate) async throws -> Squawk {
-        try await performRequest(endpoint: "/helicopters/\(helicopterId)/squawks", method: "POST", body: squawk)
+        try await performRequest(endpoint: "/squawks/helicopters/\(helicopterId)/squawks", method: "POST", body: squawk)
     }
 
     func updateSquawk(id: Int, squawk: SquawkUpdate) async throws -> Squawk {
-        try await performRequest(endpoint: "/squawks/\(id)", method: "PUT", body: squawk)
+        try await performRequest(endpoint: "/squawks/squawks/\(id)", method: "PUT", body: squawk)
     }
 
     func markSquawkFixed(id: Int, fixNotes: String?) async throws -> Squawk {
         let body = SquawkFixRequest(fixNotes: fixNotes)
-        return try await performRequest(endpoint: "/squawks/\(id)/fix", method: "PUT", body: body)
+        return try await performRequest(endpoint: "/squawks/squawks/\(id)/fix", method: "PUT", body: body)
     }
 
     func updateSquawkStatus(id: Int, status: String) async throws -> Squawk {
         let body = SquawkStatusUpdate(status: status)
-        return try await performRequest(endpoint: "/squawks/\(id)/status", method: "PUT", body: body)
+        return try await performRequest(endpoint: "/squawks/squawks/\(id)/status", method: "PUT", body: body)
     }
 
     func deleteSquawk(id: Int) async throws {
-        let _: EmptyResponse = try await performRequest(endpoint: "/squawks/\(id)", method: "DELETE")
+        let _: EmptyResponse = try await performRequest(endpoint: "/squawks/squawks/\(id)", method: "DELETE")
+    }
+
+    // MARK: - Photo Upload
+
+    func uploadPhotos(_ images: [UIImage]) async throws -> [String] {
+        guard let url = URL(string: "\(baseURL)/uploads/photos") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        if let token = authToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        var body = Data()
+
+        for (index, image) in images.enumerated() {
+            // Compress image to JPEG
+            guard let imageData = image.jpegData(compressionQuality: 0.7) else {
+                continue
+            }
+
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"photos\"; filename=\"photo\(index).jpg\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+            body.append(imageData)
+            body.append("\r\n".data(using: .utf8)!)
+        }
+
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = body
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 else {
+            throw APIError.serverError(httpResponse.statusCode)
+        }
+
+        struct UploadResponse: Codable {
+            let urls: [String]
+        }
+
+        let uploadResponse = try JSONDecoder().decode(UploadResponse.self, from: data)
+
+        // Convert relative URLs to absolute URLs
+        return uploadResponse.urls.map { relativeUrl in
+            "http://192.168.68.6:3000\(relativeUrl)"
+        }
     }
 
     // MARK: - Generic Request

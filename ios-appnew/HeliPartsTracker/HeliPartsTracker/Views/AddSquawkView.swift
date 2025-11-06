@@ -145,8 +145,11 @@ struct AddSquawkView: View {
 
         Task {
             do {
-                // TODO: Upload photos to server and get URLs
-                let photoUrls: [String] = []  // Placeholder
+                // Upload photos if any
+                var photoUrls: [String] = []
+                if !photos.isEmpty {
+                    photoUrls = try await APIService.shared.uploadPhotos(photos)
+                }
 
                 let squawk = SquawkCreate(
                     severity: severity.rawValue,

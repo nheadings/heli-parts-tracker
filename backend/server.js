@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -10,6 +11,9 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// Serve uploaded files
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Request logging
 app.use((req, res, next) => {
@@ -26,6 +30,7 @@ const alertsRoutes = require('./routes/alerts');
 const logbookRoutes = require('./routes/logbook');
 const flightsRoutes = require('./routes/flights');
 const squawksRoutes = require('./routes/squawks');
+const uploadsRoutes = require('./routes/uploads');
 
 // API routes
 app.use('/api/auth', authRoutes);
@@ -36,6 +41,7 @@ app.use('/api/alerts', alertsRoutes);
 app.use('/api/logbook', logbookRoutes);
 app.use('/api/flights', flightsRoutes);
 app.use('/api/squawks', squawksRoutes);
+app.use('/api/uploads', uploadsRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
