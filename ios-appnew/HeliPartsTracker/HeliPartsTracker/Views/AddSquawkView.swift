@@ -160,11 +160,15 @@ struct AddSquawkView: View {
                     squawk: squawk
                 )
 
-                onSquawkAdded()
-                dismiss()
+                await MainActor.run {
+                    onSquawkAdded()
+                    dismiss()
+                }
             } catch {
-                errorMessage = "Failed to save: \(error.localizedDescription)"
-                isSaving = false
+                await MainActor.run {
+                    errorMessage = "Failed to save: \(error.localizedDescription)"
+                    isSaving = false
+                }
             }
         }
     }
