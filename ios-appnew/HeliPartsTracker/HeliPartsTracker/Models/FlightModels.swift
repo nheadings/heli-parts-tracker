@@ -245,8 +245,8 @@ struct SquawkCreate: Codable {
 }
 
 struct SquawkUpdate: Codable {
-    let severity: String?
-    let title: String?
+    let severity: String
+    let title: String
     let description: String?
     let photos: [String]?
 }

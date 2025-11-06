@@ -6,6 +6,7 @@ struct SquawkDetailView: View {
     let onSquawkUpdated: () -> Void
 
     @State private var showingFixConfirmation = false
+    @State private var showingEditSheet = false
     @State private var fixNotes = ""
     @State private var isUpdating = false
     @State private var errorMessage: String?
@@ -200,6 +201,14 @@ struct SquawkDetailView: View {
             .navigationTitle("Squawk Details")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if squawk.status == .active {
+                        Button("Edit") {
+                            showingEditSheet = true
+                        }
+                    }
+                }
+
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
                         dismiss()
@@ -221,6 +230,11 @@ struct SquawkDetailView: View {
             )) { photoItem in
                 FullScreenPhotoView(photoUrl: photoItem.url) {
                     selectedPhotoUrl = nil
+                }
+            }
+            .sheet(isPresented: $showingEditSheet) {
+                EditSquawkView(squawk: squawk) {
+                    onSquawkUpdated()
                 }
             }
         }
