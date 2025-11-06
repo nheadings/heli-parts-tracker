@@ -1,6 +1,18 @@
 # Helicopter Parts Tracker
 
+[![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-blue)](https://github.com/nheadings/heli-parts-tracker)
+
 Comprehensive helicopter maintenance tracking system with native iOS app and Node.js backend.
+
+## Repository
+
+**GitHub**: https://github.com/nheadings/heli-parts-tracker
+
+Clone this repository:
+```bash
+git clone https://github.com/nheadings/heli-parts-tracker.git
+cd heli-parts-tracker
+```
 
 ## Project Overview
 
