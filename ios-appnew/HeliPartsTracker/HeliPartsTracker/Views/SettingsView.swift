@@ -48,6 +48,17 @@ struct SettingsView: View {
                     }
                 }
 
+                Section(header: Text("Logbook")) {
+                    NavigationLink(destination: LogbookCategoriesView()) {
+                        HStack {
+                            Image(systemName: "folder.fill")
+                                .foregroundColor(.green)
+                                .frame(width: 28)
+                            Text("Logbook Categories")
+                        }
+                    }
+                }
+
                 Section(header: Text("Part Locations")) {
                     ForEach(locationManager.locations, id: \.self) { location in
                         Text(location)

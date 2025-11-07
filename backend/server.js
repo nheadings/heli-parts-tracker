@@ -31,6 +31,7 @@ const logbookRoutes = require('./routes/logbook');
 const flightsRoutes = require('./routes/flights');
 const squawksRoutes = require('./routes/squawks');
 const uploadsRoutes = require('./routes/uploads');
+const unifiedLogbookRoutes = require('./routes/unified-logbook');
 
 // API routes
 app.use('/api/auth', authRoutes);
@@ -42,6 +43,7 @@ app.use('/api/logbook', logbookRoutes);
 app.use('/api/flights', flightsRoutes);
 app.use('/api/squawks', squawksRoutes);
 app.use('/api/uploads', uploadsRoutes);
+app.use('/api/unified-logbook', unifiedLogbookRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

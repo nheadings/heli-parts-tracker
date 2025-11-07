@@ -569,15 +569,29 @@ router.post('/maintenance-schedules', async (req, res) => {
 // Update maintenance schedule
 router.put('/maintenance-schedules/:id', async (req, res) => {
   const { id } = req.params;
-  const { title, description, interval_hours, interval_days, category, is_active } = req.body;
+  const {
+    title,
+    description,
+    interval_hours,
+    interval_days,
+    category,
+    is_active,
+    color,
+    display_order,
+    display_in_flight_view,
+    threshold_warning
+  } = req.body;
 
   try {
     const result = await pool.query(
       `UPDATE maintenance_schedules
-       SET title = $1, description = $2, interval_hours = $3, interval_days = $4, category = $5, is_active = $6
-       WHERE id = $7
+       SET title = $1, description = $2, interval_hours = $3, interval_days = $4,
+           category = $5, is_active = $6, color = $7, display_order = $8,
+           display_in_flight_view = $9, threshold_warning = $10
+       WHERE id = $11
        RETURNING *`,
-      [title, description, interval_hours, interval_days, category, is_active, id]
+      [title, description, interval_hours, interval_days, category, is_active,
+       color, display_order, display_in_flight_view, threshold_warning, id]
     );
 
     if (result.rows.length === 0) {
@@ -590,6 +604,166 @@ router.put('/maintenance-schedules/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to update schedule' });
   }
 });
+
+// Get helicopters assigned to a maintenance template
+router.get('/maintenance-schedules/:templateId/helicopters', async (req, res) => {
+  const { templateId } = req.params;
+
+  try {
+    const result = await pool.query(
+      `SELECT h.id, h.tail_number
+       FROM helicopter_maintenance_templates hmt
+       JOIN helicopters h ON hmt.helicopter_id = h.id
+       WHERE hmt.template_id = $1 AND hmt.is_enabled = true
+       ORDER BY h.tail_number`,
+      [templateId]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get template helicopters error:', error);
+    res.status(500).json({ error: 'Failed to fetch template helicopters' });
+  }
+});
+
+// Update helicopter assignments for a maintenance template
+router.put('/maintenance-schedules/:templateId/helicopters', async (req, res) => {
+  const { templateId } = req.params;
+  const { helicopter_ids } = req.body;
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Delete all existing assignments for this template
+    await client.query(
+      'DELETE FROM helicopter_maintenance_templates WHERE template_id = $1',
+      [templateId]
+    );
+
+    // If helicopter_ids array is not empty, insert new assignments
+    if (helicopter_ids && helicopter_ids.length > 0) {
+      const values = helicopter_ids.map((helicopterId, index) =>
+        `($1, $${index + 2}, true)`
+      ).join(', ');
+
+      await client.query(
+        `INSERT INTO helicopter_maintenance_templates (template_id, helicopter_id, is_enabled)
+         VALUES ${values}`,
+        [templateId, ...helicopter_ids]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: 'Template helicopter assignments updated successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Update template helicopters error:', error);
+    res.status(500).json({ error: 'Failed to update template helicopters' });
+  } finally {
+    client.release();
+  }
+});
+
+// ============================================================
+// MAINTENANCE COMPLETIONS ENDPOINTS
+// ============================================================
+
+// Create maintenance completion
+router.post('/maintenance-completions', async (req, res) => {
+  const {
+    helicopter_id,
+    template_id,
+    hours_at_completion,
+    notes,
+    completed_by
+  } = req.body;
+  const userId = completed_by || req.user.id;
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Get template details
+    const templateResult = await client.query(
+      'SELECT title, interval_hours, category FROM maintenance_schedules WHERE id = $1',
+      [template_id]
+    );
+
+    if (templateResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    const template = templateResult.rows[0];
+
+    // Insert maintenance completion
+    const completionResult = await client.query(
+      `INSERT INTO maintenance_completions
+       (helicopter_id, template_id, hours_at_completion, notes, completed_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [helicopter_id, template_id, hours_at_completion, notes, userId]
+    );
+
+    // Create corresponding maintenance log entry
+    const logType = template.category || 'maintenance';
+    const nextDueHours = hours_at_completion + (template.interval_hours || 0);
+    const description = `${template.title} completed at ${hours_at_completion} hours`;
+
+    await client.query(
+      `INSERT INTO maintenance_logs
+       (helicopter_id, log_type, hours_at_service, date_performed, performed_by,
+        description, cost, next_due_hours, next_due_date, attachments, status)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4, $5, NULL, $6, NULL, NULL, 'completed')`,
+      [helicopter_id, logType, hours_at_completion, userId, description, nextDueHours]
+    );
+
+    await client.query('COMMIT');
+    res.json(completionResult.rows[0]);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Create maintenance completion error:', error);
+    res.status(500).json({ error: 'Failed to create maintenance completion' });
+  } finally {
+    client.release();
+  }
+});
+
+// Get maintenance completions for a helicopter
+router.get('/helicopters/:helicopterId/maintenance-completions', async (req, res) => {
+  const { helicopterId } = req.params;
+  const { limit = 50, offset = 0 } = req.query;
+
+  try {
+    const result = await pool.query(
+      `SELECT mc.*,
+              ms.title as maintenance_title,
+              ms.category as maintenance_category,
+              ms.color as maintenance_color,
+              u.username as completed_by_username,
+              u.full_name as completed_by_name
+       FROM maintenance_completions mc
+       LEFT JOIN maintenance_schedules ms ON mc.template_id = ms.id
+       LEFT JOIN users u ON mc.completed_by = u.id
+       WHERE mc.helicopter_id = $1
+       ORDER BY mc.completed_at DESC
+       LIMIT $2 OFFSET $3`,
+      [helicopterId, limit, offset]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get maintenance completions error:', error);
+    res.status(500).json({ error: 'Failed to fetch maintenance completions' });
+  }
+});
+
+// ============================================================
+// DASHBOARD ENDPOINTS
+// ============================================================
 
 // Get helicopter dashboard (summary of upcoming maintenance)
 router.get('/helicopters/:helicopterId/dashboard', async (req, res) => {

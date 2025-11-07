@@ -417,6 +417,124 @@ class APIService {
         }
     }
 
+    // MARK: - Unified Logbook
+
+    // Categories
+    func getLogbookCategories() async throws -> [LogbookCategory] {
+        try await performRequest(endpoint: "/unified-logbook/categories", method: "GET")
+    }
+
+    func createLogbookCategory(category: LogbookCategoryCreate) async throws -> LogbookCategory {
+        try await performRequest(endpoint: "/unified-logbook/categories", method: "POST", body: category)
+    }
+
+    func updateLogbookCategory(id: Int, category: LogbookCategoryCreate, isActive: Bool) async throws -> LogbookCategory {
+        struct UpdateBody: Codable {
+            let name: String
+            let icon: String
+            let color: String
+            let display_order: Int
+            let is_active: Bool
+        }
+        let body = UpdateBody(name: category.name, icon: category.icon, color: category.color, display_order: category.displayOrder, is_active: isActive)
+        return try await performRequest(endpoint: "/unified-logbook/categories/\(id)", method: "PUT", body: body)
+    }
+
+    func deleteLogbookCategory(id: Int) async throws {
+        let _: EmptyResponse = try await performRequest(endpoint: "/unified-logbook/categories/\(id)", method: "DELETE")
+    }
+
+    // Entries
+    func getLogbookEntries(helicopterId: String? = nil, categoryIds: String? = nil, startDate: String? = nil, endDate: String? = nil, search: String? = nil, limit: Int = 100, offset: Int = 0) async throws -> [LogbookEntry] {
+        var endpoint = "/unified-logbook/entries?"
+        var params: [String] = []
+
+        if let heli = helicopterId {
+            params.append("helicopter_id=\(heli)")
+        }
+        if let cats = categoryIds {
+            params.append("category_ids=\(cats)")
+        }
+        if let start = startDate {
+            params.append("start_date=\(start)")
+        }
+        if let end = endDate {
+            params.append("end_date=\(end)")
+        }
+        if let searchText = search, !searchText.isEmpty {
+            let encoded = searchText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            params.append("search=\(encoded)")
+        }
+
+        params.append("limit=\(limit)")
+        params.append("offset=\(offset)")
+
+        endpoint += params.joined(separator: "&")
+
+        return try await performRequest(endpoint: endpoint, method: "GET")
+    }
+
+    func getLogbookEntry(id: Int) async throws -> LogbookEntryDetail {
+        try await performRequest(endpoint: "/unified-logbook/entries/\(id)", method: "GET")
+    }
+
+    func createLogbookEntry(entry: LogbookEntryCreate) async throws -> LogbookEntry {
+        try await performRequest(endpoint: "/unified-logbook/entries", method: "POST", body: entry)
+    }
+
+    func updateLogbookEntry(id: Int, entry: LogbookEntryCreate) async throws -> LogbookEntry {
+        try await performRequest(endpoint: "/unified-logbook/entries/\(id)", method: "PUT", body: entry)
+    }
+
+    func deleteLogbookEntry(id: Int) async throws {
+        let _: EmptyResponse = try await performRequest(endpoint: "/unified-logbook/entries/\(id)", method: "DELETE")
+    }
+
+    // Attachments
+    func uploadLogbookAttachment(entryId: Int, fileData: Data, fileName: String, mimeType: String) async throws -> LogbookAttachment {
+        guard let url = URL(string: "\(baseURL)/unified-logbook/entries/\(entryId)/attachments") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        if let token = authToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        var body = Data()
+
+        // Add file data
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = body
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 else {
+            throw APIError.serverError(httpResponse.statusCode)
+        }
+
+        return try JSONDecoder().decode(LogbookAttachment.self, from: data)
+    }
+
+    func deleteLogbookAttachment(id: Int) async throws {
+        let _: EmptyResponse = try await performRequest(endpoint: "/unified-logbook/attachments/\(id)", method: "DELETE")
+    }
+
     // MARK: - Generic Request
 
     private func performRequest<T: Decodable>(endpoint: String, method: String, body: Encodable? = nil) async throws -> T {

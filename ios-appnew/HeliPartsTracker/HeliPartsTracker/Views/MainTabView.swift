@@ -19,7 +19,7 @@ struct MainTabView: View {
                     Label("Helicopters", image: "HelicopterIcon")
                 }
 
-            LogbookView()
+            UnifiedLogbookView()
                 .environmentObject(helicoptersViewModel)
                 .tabItem {
                     Label("Logbook", systemImage: "book.closed")

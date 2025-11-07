@@ -125,8 +125,12 @@ struct FlightView: View {
                         prefilledData: prefilledFlightData,
                         onSave: {
                             Task {
-                                await viewModel.loadFlights(helicopterId: helicopterId)
+                                // Reload helicopter hours first to ensure accurate calculations
                                 await helicoptersViewModel.loadHelicopters()
+                                // Then reload maintenance status with updated hours
+                                await viewModel.loadMaintenanceStatus(helicopterId: helicopterId)
+                                // Finally reload flights to show updated flight list
+                                await viewModel.loadFlights(helicopterId: helicopterId)
                             }
                         }
                     )
@@ -139,7 +143,12 @@ struct FlightView: View {
                         maintenanceItem: item,
                         onComplete: {
                             Task {
+                                // Reload helicopter hours first to ensure accurate calculations
+                                await helicoptersViewModel.loadHelicopters()
+                                // Then reload maintenance status with updated hours
                                 await viewModel.loadMaintenanceStatus(helicopterId: helicopter.id)
+                                // Reload flights to show any updated data
+                                await viewModel.loadFlights(helicopterId: helicopter.id)
                             }
                         }
                     )
