@@ -3,6 +3,7 @@ import SwiftUI
 struct HobbsScannerView: View {
     @Environment(\.dismiss) private var dismiss
     let helicopterId: Int
+    let currentHours: Double
     let onHobbsScanned: (Double) -> Void
 
     @State private var showingCamera = false
@@ -10,6 +11,9 @@ struct HobbsScannerView: View {
     @State private var hobbsHours: String = ""
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var warningMessage: String?
+    @State private var showingWarningConfirmation = false
+    @State private var pendingHours: Double?
 
     var body: some View {
         NavigationView {
@@ -54,13 +58,28 @@ struct HobbsScannerView: View {
                     }
                 }
 
+                // Current Hobbs Display
+                VStack(spacing: 8) {
+                    Text("Current Hobbs")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(String(format: "%.1f hours", currentHours))
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.blue)
+                }
+                .padding()
+                .background(Color.blue.opacity(0.1))
+                .cornerRadius(10)
+                .padding(.horizontal)
+
                 // Manual entry
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Or enter hours manually")
+                    Text("Enter new Hobbs reading")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    TextField("Hobbs Hours", text: $hobbsHours)
+                    TextField("New Hobbs Hours", text: $hobbsHours)
                         .keyboardType(.decimalPad)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                         .font(.title2)
@@ -69,9 +88,18 @@ struct HobbsScannerView: View {
 
                 if let error = errorMessage {
                     Text(error)
-                        .font(.caption)
+                        .font(.callout)
                         .foregroundColor(.red)
                         .padding(.horizontal)
+                        .multilineTextAlignment(.center)
+                }
+
+                if let warning = warningMessage {
+                    Text(warning)
+                        .font(.callout)
+                        .foregroundColor(.orange)
+                        .padding(.horizontal)
+                        .multilineTextAlignment(.center)
                 }
 
                 Spacer()
@@ -108,6 +136,22 @@ struct HobbsScannerView: View {
             .sheet(isPresented: $showingCamera) {
                 SimpleCameraView(capturedImage: $capturedImage)
             }
+            .alert("Confirm Large Hour Increase", isPresented: $showingWarningConfirmation) {
+                Button("Cancel", role: .cancel) {
+                    pendingHours = nil
+                    warningMessage = nil
+                }
+                Button("Save Anyway") {
+                    if let hours = pendingHours {
+                        performSave(hours: hours)
+                    }
+                }
+            } message: {
+                if let hours = pendingHours {
+                    let difference = hours - currentHours
+                    Text("You're about to add \(String(format: "%.1f", difference)) hours, which is unusually high for a single flight. Are you sure this is correct?")
+                }
+            }
         }
     }
 
@@ -121,11 +165,34 @@ struct HobbsScannerView: View {
     private func saveHobbsReading() {
         guard let hours = Double(hobbsHours) else {
             errorMessage = "Please enter valid hours"
+            warningMessage = nil
             return
         }
 
+        // Validation: Cannot be less than current Hobbs
+        if hours < currentHours {
+            errorMessage = "New Hobbs reading (\(String(format: "%.1f", hours))) cannot be less than current Hobbs (\(String(format: "%.1f", currentHours)))"
+            warningMessage = nil
+            return
+        }
+
+        // Warning: More than 20 hours difference
+        let difference = hours - currentHours
+        if difference > 20 {
+            pendingHours = hours
+            warningMessage = "Large difference detected: \(String(format: "%.1f", difference)) hours. This is unusual for a single flight."
+            showingWarningConfirmation = true
+            return
+        }
+
+        // If validation passes, proceed with save
+        performSave(hours: hours)
+    }
+
+    private func performSave(hours: Double) {
         isSaving = true
         errorMessage = nil
+        warningMessage = nil
 
         Task {
             do {
@@ -142,6 +209,30 @@ struct HobbsScannerView: View {
                     helicopterId: helicopterId,
                     hours: hoursCreate
                 )
+
+                // Create a flight record
+                let tachTime = hours - currentHours
+                if tachTime > 0 {
+                    let now = ISO8601DateFormatter().string(from: Date())
+
+                    // Calculate departure time based on tach time (assuming tach time = flight time)
+                    let departureDate = Date().addingTimeInterval(-tachTime * 3600)
+                    let departureTime = ISO8601DateFormatter().string(from: departureDate)
+
+                    let flightCreate = FlightCreate(
+                        hobbsStart: currentHours,
+                        hobbsEnd: hours,
+                        flightTime: tachTime, // Same as tach for quick Hobbs entry
+                        tachTime: tachTime,
+                        departureTime: departureTime,
+                        arrivalTime: now,
+                        hobbsPhotoUrl: nil,
+                        ocrConfidence: capturedImage != nil ? 0.0 : nil,
+                        notes: nil
+                    )
+
+                    _ = try await APIService.shared.createFlight(helicopterId: helicopterId, flight: flightCreate)
+                }
 
                 onHobbsScanned(hours)
                 dismiss()

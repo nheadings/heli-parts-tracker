@@ -4,12 +4,16 @@ import Combine
 struct FlightView: View {
     @EnvironmentObject var helicoptersViewModel: HelicoptersViewModel
     @StateObject private var viewModel = FlightViewModel()
+    @StateObject private var flightTimer = FlightTimerManager()
 
     @State private var selectedHelicopterIndex = 0
     @State private var showingHobbsScanner = false
     @State private var showingAddSquawk = false
     @State private var showingSquawkDetails: Squawk? = nil
     @State private var showingSquawksSheet = false
+    @State private var showingEditFlight = false
+    @State private var editingFlight: Flight? = nil
+    @State private var prefilledFlightData: EditFlightView.PrefilledFlightData? = nil
 
     var body: some View {
         NavigationView {
@@ -21,6 +25,9 @@ struct FlightView: View {
                 } else {
                     // Aircraft Banner
                     aircraftBanner
+
+                    // Flight Timer Section
+                    flightTimerSection
 
                     // Flights Section
                     flightsSection
@@ -55,6 +62,7 @@ struct FlightView: View {
             .sheet(isPresented: $showingHobbsScanner) {
                 HobbsScannerView(
                     helicopterId: selectedHelicopter?.id ?? 0,
+                    currentHours: selectedHelicopter?.currentHours ?? 0,
                     onHobbsScanned: { hours in
                         viewModel.updateHobbsHours(hours: hours, helicopterId: selectedHelicopter?.id ?? 0)
                         Task {
@@ -102,6 +110,21 @@ struct FlightView: View {
                     showingAddSquawk: $showingAddSquawk,
                     showingSquawkDetails: $showingSquawkDetails
                 )
+            }
+            .sheet(isPresented: $showingEditFlight) {
+                if let helicopterId = selectedHelicopter?.id {
+                    EditFlightView(
+                        helicopterId: helicopterId,
+                        existingFlight: editingFlight,
+                        prefilledData: prefilledFlightData,
+                        onSave: {
+                            Task {
+                                await viewModel.loadFlights(helicopterId: helicopterId)
+                                await helicoptersViewModel.loadHelicopters()
+                            }
+                        }
+                    )
+                }
             }
         }
         .task {
@@ -255,6 +278,147 @@ struct FlightView: View {
         }
     }
 
+    // MARK: - Flight Timer Section
+
+    private var flightTimerSection: some View {
+        VStack(spacing: 0) {
+            if flightTimer.isRunning {
+                // Active Timer UI
+                VStack(spacing: 12) {
+                    Text("FLIGHT IN PROGRESS")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(Color.green)
+                        .cornerRadius(8)
+
+                    Text(flightTimer.formattedElapsedTime())
+                        .font(.system(size: 48, weight: .bold, design: .monospaced))
+                        .foregroundColor(.green)
+
+                    if let startHobbs = flightTimer.startHobbs {
+                        Text("Start Hobbs: \(String(format: "%.1f", startHobbs))")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack(spacing: 16) {
+                        if flightTimer.isPaused {
+                            Button(action: {
+                                flightTimer.resumeFlight()
+                            }) {
+                                Label("Resume", systemImage: "play.fill")
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.green)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(10)
+                            }
+                        } else {
+                            Button(action: {
+                                flightTimer.pauseFlight()
+                            }) {
+                                Label("Pause", systemImage: "pause.fill")
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.orange)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(10)
+                            }
+                        }
+
+                        Button(action: {
+                            endFlight()
+                        }) {
+                            Label("End Flight", systemImage: "stop.fill")
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.red)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                        }
+                    }
+                    .padding(.horizontal)
+
+                    Button(action: {
+                        flightTimer.cancelFlight()
+                    }) {
+                        Text("Cancel Flight")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                }
+                .padding()
+                .background(Color(.secondarySystemGroupedBackground))
+            } else {
+                // Start Flight Button
+                VStack(spacing: 12) {
+                    Button(action: {
+                        startFlight()
+                    }) {
+                        HStack {
+                            Image(systemName: "timer")
+                                .font(.title3)
+                            Text("Start Flight")
+                                .font(.headline)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                    }
+                    .padding(.horizontal)
+
+                    Button(action: {
+                        showingHobbsScanner = true
+                    }) {
+                        HStack {
+                            Image(systemName: "camera.metering.matrix")
+                                .font(.title3)
+                            Text("Quick Hobbs Entry")
+                                .font(.headline)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                    }
+                    .padding(.horizontal)
+                }
+                .padding(.vertical)
+                .background(Color(.systemGroupedBackground))
+            }
+
+            Divider()
+        }
+    }
+
+    private func startFlight() {
+        guard let helicopter = selectedHelicopter else { return }
+        let currentHobbs = helicopter.currentHours ?? 0
+        flightTimer.startFlight(helicopterId: helicopter.id, currentHobbs: currentHobbs)
+    }
+
+    private func endFlight() {
+        guard let flightData = flightTimer.endFlight(),
+              let helicopter = selectedHelicopter else { return }
+
+        let departureDate = Date().addingTimeInterval(-flightData.elapsedTime)
+
+        prefilledFlightData = EditFlightView.PrefilledFlightData(
+            hobbsStart: flightData.startHobbs,
+            flightTimeHours: flightData.elapsedTime / 3600.0,
+            departureTime: departureDate,
+            arrivalTime: Date()
+        )
+        editingFlight = nil
+        showingEditFlight = true
+    }
+
     // MARK: - Flights Section
 
     private var flightsSection: some View {
@@ -290,7 +454,14 @@ struct FlightView: View {
                 ScrollView {
                     LazyVStack(spacing: 1) {
                         ForEach(viewModel.flights) { flight in
-                            flightRow(flight: flight)
+                            Button(action: {
+                                editingFlight = flight
+                                prefilledFlightData = nil
+                                showingEditFlight = true
+                            }) {
+                                flightRow(flight: flight)
+                            }
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
                 }

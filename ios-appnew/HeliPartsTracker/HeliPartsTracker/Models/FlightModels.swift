@@ -22,6 +22,8 @@ struct Flight: Codable, Identifiable, Hashable {
     let pilotName: String?
     let tailNumber: String?
 
+    let tachTime: Double?
+
     enum CodingKeys: String, CodingKey {
         case id
         case helicopterId = "helicopter_id"
@@ -29,6 +31,7 @@ struct Flight: Codable, Identifiable, Hashable {
         case hobbsStart = "hobbs_start"
         case hobbsEnd = "hobbs_end"
         case flightTime = "flight_time"
+        case tachTime = "tach_time"
         case departureTime = "departure_time"
         case arrivalTime = "arrival_time"
         case hobbsPhotoUrl = "hobbs_photo_url"
@@ -77,6 +80,13 @@ struct Flight: Codable, Identifiable, Hashable {
             flightTime = try container.decodeIfPresent(Double.self, forKey: .flightTime)
         }
 
+        // Handle tachTime as either String or Double
+        if let tachTimeString = try? container.decodeIfPresent(String.self, forKey: .tachTime) {
+            tachTime = Double(tachTimeString)
+        } else {
+            tachTime = try container.decodeIfPresent(Double.self, forKey: .tachTime)
+        }
+
         // Handle ocrConfidence as either String or Double
         if let confidenceString = try? container.decodeIfPresent(String.self, forKey: .ocrConfidence) {
             ocrConfidence = Double(confidenceString)
@@ -98,6 +108,8 @@ struct Flight: Codable, Identifiable, Hashable {
 struct FlightCreate: Codable {
     let hobbsStart: Double?
     let hobbsEnd: Double?
+    let flightTime: Double?
+    let tachTime: Double?
     let departureTime: String?
     let arrivalTime: String?
     let hobbsPhotoUrl: String?
@@ -107,6 +119,8 @@ struct FlightCreate: Codable {
     enum CodingKeys: String, CodingKey {
         case hobbsStart = "hobbs_start"
         case hobbsEnd = "hobbs_end"
+        case flightTime = "flight_time"
+        case tachTime = "tach_time"
         case departureTime = "departure_time"
         case arrivalTime = "arrival_time"
         case hobbsPhotoUrl = "hobbs_photo_url"
