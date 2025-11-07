@@ -17,6 +17,7 @@ struct FlightView: View {
     @State private var showingCancelFlightAlert = false
     @State private var flightToDelete: Flight? = nil
     @State private var showingDeleteFlightAlert = false
+    @State private var selectedMaintenanceItem: FlightViewMaintenance? = nil
 
     var body: some View {
         NavigationView {
@@ -131,6 +132,19 @@ struct FlightView: View {
                     )
                 }
             }
+            .sheet(item: $selectedMaintenanceItem) { item in
+                if let helicopter = selectedHelicopter {
+                    AddMaintenanceCompletionView(
+                        helicopter: helicopter,
+                        maintenanceItem: item,
+                        onComplete: {
+                            Task {
+                                await viewModel.loadMaintenanceStatus(helicopterId: helicopter.id)
+                            }
+                        }
+                    )
+                }
+            }
         }
         .alert("Cancel Flight?", isPresented: $showingCancelFlightAlert) {
             Button("Cancel Flight", role: .destructive) {
@@ -221,23 +235,15 @@ struct FlightView: View {
                     .foregroundColor(.orange)
             }
 
-            // Maintenance Status Indicators
-            HStack(spacing: 16) {
-                // Oil Change Status
-                maintenanceStatusCard(
-                    title: "Oil Change",
-                    hoursRemaining: viewModel.hoursUntilOilChange,
-                    color: maintenanceColor(hoursRemaining: viewModel.hoursUntilOilChange, threshold: 10)
-                )
-
-                // Fuel Line AD Status
-                maintenanceStatusCard(
-                    title: "Fuel Line AD",
-                    hoursRemaining: viewModel.hoursUntilFuelLineAD,
-                    color: maintenanceColor(hoursRemaining: viewModel.hoursUntilFuelLineAD, threshold: 25)
-                )
+            // Dynamic Maintenance Status Indicators
+            if !viewModel.maintenanceItems.isEmpty {
+                HStack(spacing: calculateMaintenanceSpacing(count: viewModel.maintenanceItems.count)) {
+                    ForEach(viewModel.maintenanceItems.sorted { $0.displayOrder < $1.displayOrder }) { item in
+                        dynamicMaintenanceCard(item: item)
+                    }
+                }
+                .padding(.horizontal)
             }
-            .padding(.horizontal)
 
             // Action Buttons
             HStack(spacing: 12) {
@@ -294,6 +300,76 @@ struct FlightView: View {
         .cornerRadius(12)
     }
 
+    private func dynamicMaintenanceCard(item: FlightViewMaintenance) -> some View {
+        let backgroundColor = Color(hex: item.color)
+        let percentageRemaining = (item.hoursRemaining / item.intervalHours) * 100
+        let textColor = getTextColorForPercentage(percentageRemaining)
+
+        return VStack(spacing: 4) {
+            Text(item.title)
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.9))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+
+            Text("\(Int(item.hoursRemaining))")
+                .font(.title)
+                .fontWeight(.bold)
+                .foregroundColor(textColor)
+
+            Text("hours")
+                .font(.caption2)
+                .foregroundColor(.white.opacity(0.7))
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(backgroundColor)
+        .cornerRadius(12)
+        .onTapGesture {
+            selectedMaintenanceItem = item
+        }
+    }
+
+    private func getTextColorForPercentage(_ percentage: Double) -> Color {
+        // Seamless color transition based on percentage remaining
+        // 100-75%: Green
+        // 75-50%: Green to Yellow
+        // 50-25%: Yellow to Orange
+        // 25-0%: Orange to Red
+        // <0%: Red
+
+        if percentage < 0 {
+            return .red
+        } else if percentage <= 25 {
+            // Red to Orange (0-25%)
+            let normalizedPercent = percentage / 25.0
+            return interpolateColor(from: .red, to: Color(red: 1.0, green: 0.6, blue: 0.0), percentage: normalizedPercent)
+        } else if percentage <= 50 {
+            // Orange to Yellow (25-50%)
+            let normalizedPercent = (percentage - 25.0) / 25.0
+            return interpolateColor(from: Color(red: 1.0, green: 0.6, blue: 0.0), to: .yellow, percentage: normalizedPercent)
+        } else if percentage <= 75 {
+            // Yellow to Light Green (50-75%)
+            let normalizedPercent = (percentage - 50.0) / 25.0
+            return interpolateColor(from: .yellow, to: Color(red: 0.6, green: 1.0, blue: 0.4), percentage: normalizedPercent)
+        } else {
+            // Light Green to Green (75-100%)
+            let normalizedPercent = (percentage - 75.0) / 25.0
+            return interpolateColor(from: Color(red: 0.6, green: 1.0, blue: 0.4), to: .green, percentage: normalizedPercent)
+        }
+    }
+
+    private func interpolateColor(from: Color, to: Color, percentage: Double) -> Color {
+        let fromComponents = UIColor(from).cgColor.components ?? [0, 0, 0, 1]
+        let toComponents = UIColor(to).cgColor.components ?? [0, 0, 0, 1]
+
+        let r = fromComponents[0] + (toComponents[0] - fromComponents[0]) * percentage
+        let g = fromComponents[1] + (toComponents[1] - fromComponents[1]) * percentage
+        let b = fromComponents[2] + (toComponents[2] - fromComponents[2]) * percentage
+
+        return Color(red: r, green: g, blue: b)
+    }
+
     private func maintenanceColor(hoursRemaining: Double?, threshold: Double) -> Color {
         guard let hours = hoursRemaining else { return .gray }
 
@@ -305,6 +381,37 @@ struct FlightView: View {
             return .yellow
         } else {
             return .green
+        }
+    }
+
+    private func maintenanceColorFromHex(hex: String, hoursRemaining: Double, threshold: Int) -> Color {
+        let baseColor = Color(hex: hex)
+
+        // Apply opacity based on urgency
+        if hoursRemaining <= 0 {
+            return .red // Override to red for overdue
+        } else if hoursRemaining <= Double(threshold) {
+            return baseColor // Full color for warning zone
+        } else if hoursRemaining <= Double(threshold) * 2 {
+            return baseColor.opacity(0.7) // Slightly faded for approaching
+        } else {
+            return baseColor.opacity(0.5) // Faded for plenty of time
+        }
+    }
+
+    private func calculateMaintenanceSpacing(count: Int) -> CGFloat {
+        // Adjust spacing based on number of items to fit on screen
+        switch count {
+        case 1...2:
+            return 16
+        case 3:
+            return 12
+        case 4:
+            return 8
+        case 5:
+            return 6
+        default:
+            return 6
         }
     }
 
@@ -715,7 +822,10 @@ class FlightViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
 
-    // Maintenance status
+    // Dynamic maintenance status
+    @Published var maintenanceItems: [FlightViewMaintenance] = []
+
+    // Legacy maintenance status (for backwards compatibility)
     @Published var hoursUntilOilChange: Double?
     @Published var hoursUntilFuelLineAD: Double?
 
@@ -745,7 +855,10 @@ class FlightViewModel: ObservableObject {
         do {
             let dashboard = try await APIService.shared.getLogbookDashboard(helicopterId: helicopterId)
 
-            // Oil change hours remaining - use dashboard's calculated value
+            // Load dynamic maintenance items
+            maintenanceItems = dashboard.flightViewMaintenance
+
+            // Legacy support - keep old fields for compatibility
             hoursUntilOilChange = dashboard.hoursUntilOilChange
 
             // Fuel Line AD - look for it in upcoming maintenance

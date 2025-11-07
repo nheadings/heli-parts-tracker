@@ -10,6 +10,8 @@ struct HelicopterDetailView: View {
     @State private var installationToDelete: PartInstallation?
     @State private var showingDeletionError = false
     @State private var deletionErrorMessage = ""
+    @State private var maintenanceItems: [FlightViewMaintenance] = []
+    @State private var isLoadingMaintenance = false
 
     // Computed property to get the current helicopter from the view model
     private var helicopter: Helicopter? {
@@ -45,6 +47,38 @@ struct HelicopterDetailView: View {
             }
 
             if !viewModel.isLoading, let helicopter = helicopter {
+                    // Maintenance Status Banner
+                    if !maintenanceItems.isEmpty {
+                        Section {
+                            VStack(spacing: 8) {
+                                Text("Maintenance Status")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                HStack(spacing: 8) {
+                                    ForEach(maintenanceItems.sorted { $0.displayOrder < $1.displayOrder }) { item in
+                                        VStack(spacing: 4) {
+                                            Circle()
+                                                .fill(maintenanceStatusColor(item: item))
+                                                .frame(width: 24, height: 24)
+
+                                            Text(item.title)
+                                                .font(.system(size: 9))
+                                                .lineLimit(2)
+                                                .multilineTextAlignment(.center)
+
+                                            Text("\(Int(item.hoursRemaining))h")
+                                                .font(.system(size: 8, weight: .bold))
+                                                .foregroundColor(maintenanceStatusColor(item: item))
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 8)
+                        }
+                    }
+
                     Section("Helicopter Information") {
                         DetailRow(label: "Tail Number", value: helicopter.tailNumber)
                         DetailRow(label: "Model", value: helicopter.model)
@@ -143,9 +177,11 @@ struct HelicopterDetailView: View {
         }
         .task {
             await viewModel.loadHelicopterParts(helicopterId: helicopterId)
+            await loadMaintenanceStatus()
         }
         .refreshable {
             await viewModel.loadHelicopterParts(helicopterId: helicopterId)
+            await loadMaintenanceStatus()
         }
         .alert("Remove Part", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
@@ -202,5 +238,30 @@ struct HelicopterDetailView: View {
             return displayFormatter.string(from: date)
         }
         return dateString
+    }
+
+    private func loadMaintenanceStatus() async {
+        isLoadingMaintenance = true
+        do {
+            let dashboard = try await APIService.shared.getLogbookDashboard(helicopterId: helicopterId)
+            maintenanceItems = dashboard.flightViewMaintenance
+        } catch {
+            print("Error loading maintenance status: \(error)")
+        }
+        isLoadingMaintenance = false
+    }
+
+    private func maintenanceStatusColor(item: FlightViewMaintenance) -> Color {
+        let baseColor = Color(hex: item.color)
+
+        if item.hoursRemaining <= 0 {
+            return .red
+        } else if item.hoursRemaining <= Double(item.thresholdWarning) {
+            return baseColor
+        } else if item.hoursRemaining <= Double(item.thresholdWarning) * 2 {
+            return baseColor.opacity(0.7)
+        } else {
+            return baseColor.opacity(0.5)
+        }
     }
 }

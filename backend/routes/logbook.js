@@ -725,6 +725,42 @@ router.get('/helicopters/:helicopterId/dashboard', async (req, res) => {
       [helicopterId]
     );
 
+    // Get flight view maintenance status (for display in flight page banners)
+    const flightViewMaintenanceResult = await pool.query(
+      `SELECT ms.id, ms.title, ms.interval_hours, ms.color, ms.display_order, ms.threshold_warning,
+              mc.hours_at_completion as last_completed_hours,
+              mc.hours_at_completion + ms.interval_hours as next_due_hours,
+              CASE
+                WHEN mc.hours_at_completion IS NOT NULL
+                THEN (mc.hours_at_completion + ms.interval_hours) - $1
+                ELSE ms.interval_hours
+              END as hours_remaining
+       FROM maintenance_schedules ms
+       LEFT JOIN LATERAL (
+         SELECT hours_at_completion
+         FROM maintenance_completions
+         WHERE template_id = ms.id
+         AND helicopter_id = $2
+         ORDER BY completed_at DESC
+         LIMIT 1
+       ) mc ON true
+       LEFT JOIN helicopter_maintenance_templates hmt
+         ON hmt.template_id = ms.id AND hmt.helicopter_id = $2 AND hmt.is_enabled = true
+       WHERE ms.is_template = true
+         AND ms.is_active = true
+         AND ms.display_in_flight_view = true
+         AND (
+           hmt.id IS NOT NULL
+           OR NOT EXISTS (
+             SELECT 1 FROM helicopter_maintenance_templates
+             WHERE template_id = ms.id
+           )
+         )
+       ORDER BY ms.display_order ASC
+       LIMIT 5`,
+      [currentHours, helicopterId]
+    );
+
     res.json({
       helicopter,
       oil_change: oilChangeResult.rows[0] || null,
@@ -733,7 +769,8 @@ router.get('/helicopters/:helicopterId/dashboard', async (req, res) => {
       upcoming_maintenance: schedulesResult.rows,
       life_limited_parts: lifePartsResult.rows,
       recent_fluids: fluidLogsResult.rows,
-      recent_installations: installationsResult.rows
+      recent_installations: installationsResult.rows,
+      flight_view_maintenance: flightViewMaintenanceResult.rows
     });
   } catch (error) {
     console.error('Get dashboard error:', error);

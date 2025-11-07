@@ -167,3 +167,13 @@ struct HelicopterCreate: Codable {
         try container.encode(status, forKey: .status)
     }
 }
+
+struct HelicopterAssignment: Codable {
+    let id: Int
+    let tailNumber: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case tailNumber = "tail_number"
+    }
+}

@@ -261,6 +261,31 @@ class APIService {
         let _: EmptyResponse = try await performRequest(endpoint: "/logbook/maintenance-schedules/\(id)", method: "DELETE")
     }
 
+    func getTemplateHelicopters(templateId: Int) async throws -> [HelicopterAssignment] {
+        try await performRequest(endpoint: "/logbook/maintenance-schedules/\(templateId)/helicopters", method: "GET")
+    }
+
+    func updateTemplateHelicopters(templateId: Int, helicopterIds: [Int]) async throws {
+        struct UpdateBody: Codable {
+            let helicopter_ids: [Int]
+        }
+        struct UpdateResponse: Codable {
+            let message: String
+        }
+
+        let body = UpdateBody(helicopter_ids: helicopterIds)
+        let _: UpdateResponse = try await performRequest(endpoint: "/logbook/maintenance-schedules/\(templateId)/helicopters", method: "PUT", body: body)
+    }
+
+    // Maintenance Completions
+    func createMaintenanceCompletion(completion: MaintenanceCompletionCreate) async throws -> MaintenanceCompletion {
+        try await performRequest(endpoint: "/logbook/maintenance-completions", method: "POST", body: completion)
+    }
+
+    func getMaintenanceCompletions(helicopterId: Int, limit: Int = 50, offset: Int = 0) async throws -> [MaintenanceCompletion] {
+        try await performRequest(endpoint: "/logbook/helicopters/\(helicopterId)/maintenance-completions?limit=\(limit)&offset=\(offset)", method: "GET")
+    }
+
     // Dashboard
     func getLogbookDashboard(helicopterId: Int) async throws -> LogbookDashboard {
         try await performRequest(endpoint: "/logbook/helicopters/\(helicopterId)/dashboard", method: "GET")

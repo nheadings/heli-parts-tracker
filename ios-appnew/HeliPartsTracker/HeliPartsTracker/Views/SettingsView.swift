@@ -37,6 +37,17 @@ struct SettingsView: View {
                     DetailRow(label: "Server", value: "192.168.68.6:3000")
                 }
 
+                Section(header: Text("Maintenance")) {
+                    NavigationLink(destination: MaintenanceTemplatesView()) {
+                        HStack {
+                            Image(systemName: "wrench.and.screwdriver")
+                                .foregroundColor(.blue)
+                                .frame(width: 28)
+                            Text("Maintenance Templates")
+                        }
+                    }
+                }
+
                 Section(header: Text("Part Locations")) {
                     ForEach(locationManager.locations, id: \.self) { location in
                         Text(location)

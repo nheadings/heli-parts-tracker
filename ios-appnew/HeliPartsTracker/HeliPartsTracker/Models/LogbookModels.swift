@@ -448,11 +448,15 @@ struct MaintenanceSchedule: Codable, Identifiable {
     let lastCompletedDate: String?
     let nextDueHours: Double?
     let nextDueDate: String?
+    let color: String?
+    let displayOrder: Int?
+    let displayInFlightView: Bool?
+    let thresholdWarning: Int?
     let createdAt: String?
     let updatedAt: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, description
+        case id, title, description, color
         case intervalHours = "interval_hours"
         case intervalDays = "interval_days"
         case isTemplate = "is_template"
@@ -464,6 +468,9 @@ struct MaintenanceSchedule: Codable, Identifiable {
         case lastCompletedDate = "last_completed_date"
         case nextDueHours = "next_due_hours"
         case nextDueDate = "next_due_date"
+        case displayOrder = "display_order"
+        case displayInFlightView = "display_in_flight_view"
+        case thresholdWarning = "threshold_warning"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -492,6 +499,10 @@ struct MaintenanceSchedule: Codable, Identifiable {
         isActive = try container.decode(Bool.self, forKey: .isActive)
         lastCompletedDate = try container.decodeIfPresent(String.self, forKey: .lastCompletedDate)
         nextDueDate = try container.decodeIfPresent(String.self, forKey: .nextDueDate)
+        color = try container.decodeIfPresent(String.self, forKey: .color)
+        displayOrder = try container.decodeIfPresent(Int.self, forKey: .displayOrder)
+        displayInFlightView = try container.decodeIfPresent(Bool.self, forKey: .displayInFlightView)
+        thresholdWarning = try container.decodeIfPresent(Int.self, forKey: .thresholdWarning)
         createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
         updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
 
@@ -525,13 +536,73 @@ struct MaintenanceScheduleCreate: Codable {
     let intervalDays: Int?
     let helicopterId: Int?
     let category: String?
+    let color: String?
+    let displayOrder: Int?
+    let displayInFlightView: Bool?
+    let thresholdWarning: Int?
+    let isTemplate: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case title, description
+        case title, description, color
         case intervalHours = "interval_hours"
         case intervalDays = "interval_days"
         case helicopterId = "helicopter_id"
         case category
+        case displayOrder = "display_order"
+        case displayInFlightView = "display_in_flight_view"
+        case thresholdWarning = "threshold_warning"
+        case isTemplate = "is_template"
+    }
+}
+
+// Flight View Maintenance Item (for display on flight page)
+struct FlightViewMaintenance: Codable, Identifiable {
+    let id: Int
+    let title: String
+    let intervalHours: Double
+    let color: String
+    let displayOrder: Int
+    let thresholdWarning: Int
+    let nextDueHours: Double?
+    let hoursRemaining: Double
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, color
+        case intervalHours = "interval_hours"
+        case displayOrder = "display_order"
+        case thresholdWarning = "threshold_warning"
+        case nextDueHours = "next_due_hours"
+        case hoursRemaining = "hours_remaining"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        color = try container.decode(String.self, forKey: .color)
+        displayOrder = try container.decode(Int.self, forKey: .displayOrder)
+        thresholdWarning = try container.decode(Int.self, forKey: .thresholdWarning)
+
+        // Handle intervalHours as either String or Double
+        if let hoursString = try? container.decode(String.self, forKey: .intervalHours) {
+            intervalHours = Double(hoursString) ?? 0
+        } else {
+            intervalHours = try container.decode(Double.self, forKey: .intervalHours)
+        }
+
+        // Handle nextDueHours as either String or Double
+        if let dueString = try? container.decodeIfPresent(String.self, forKey: .nextDueHours) {
+            nextDueHours = Double(dueString)
+        } else {
+            nextDueHours = try container.decodeIfPresent(Double.self, forKey: .nextDueHours)
+        }
+
+        // Handle hoursRemaining as either String or Double
+        if let remainingString = try? container.decode(String.self, forKey: .hoursRemaining) {
+            hoursRemaining = Double(remainingString) ?? 0
+        } else {
+            hoursRemaining = try container.decode(Double.self, forKey: .hoursRemaining)
+        }
     }
 }
 
@@ -545,6 +616,7 @@ struct LogbookDashboard: Codable {
     let lifeLimitedParts: [LifeLimitedPart]
     let recentFluids: [FluidLog]
     let recentInstallations: [PartInstallation]
+    let flightViewMaintenance: [FlightViewMaintenance]
 
     enum CodingKeys: String, CodingKey {
         case helicopter
@@ -554,9 +626,10 @@ struct LogbookDashboard: Codable {
         case lifeLimitedParts = "life_limited_parts"
         case recentFluids = "recent_fluids"
         case recentInstallations = "recent_installations"
+        case flightViewMaintenance = "flight_view_maintenance"
     }
 
-    init(helicopter: HelicopterDetail, oilChange: MaintenanceLog?, hoursUntilOilChange: Double?, upcomingMaintenance: [UpcomingMaintenance], lifeLimitedParts: [LifeLimitedPart], recentFluids: [FluidLog], recentInstallations: [PartInstallation]) {
+    init(helicopter: HelicopterDetail, oilChange: MaintenanceLog?, hoursUntilOilChange: Double?, upcomingMaintenance: [UpcomingMaintenance], lifeLimitedParts: [LifeLimitedPart], recentFluids: [FluidLog], recentInstallations: [PartInstallation], flightViewMaintenance: [FlightViewMaintenance] = []) {
         self.helicopter = helicopter
         self.oilChange = oilChange
         self.hoursUntilOilChange = hoursUntilOilChange
@@ -564,6 +637,7 @@ struct LogbookDashboard: Codable {
         self.lifeLimitedParts = lifeLimitedParts
         self.recentFluids = recentFluids
         self.recentInstallations = recentInstallations
+        self.flightViewMaintenance = flightViewMaintenance
     }
 
     init(from decoder: Decoder) throws {
@@ -574,6 +648,7 @@ struct LogbookDashboard: Codable {
         lifeLimitedParts = try container.decode([LifeLimitedPart].self, forKey: .lifeLimitedParts)
         recentFluids = try container.decode([FluidLog].self, forKey: .recentFluids)
         recentInstallations = try container.decode([PartInstallation].self, forKey: .recentInstallations)
+        flightViewMaintenance = (try? container.decode([FlightViewMaintenance].self, forKey: .flightViewMaintenance)) ?? []
 
         // Handle hoursUntilOilChange as either String or Double
         if let hoursString = try? container.decodeIfPresent(String.self, forKey: .hoursUntilOilChange) {
@@ -658,5 +733,82 @@ struct UpcomingMaintenance: Codable, Identifiable {
         } else {
             hoursRemaining = try container.decodeIfPresent(Double.self, forKey: .hoursRemaining)
         }
+    }
+}
+
+// MARK: - Maintenance Completion
+
+struct MaintenanceCompletion: Codable, Identifiable {
+    let id: Int
+    let helicopterId: Int
+    let templateId: Int
+    let completedAt: String
+    let hoursAtCompletion: Double
+    let notes: String?
+    let completedBy: Int?
+    let maintenanceTitle: String?
+    let maintenanceCategory: String?
+    let maintenanceColor: String?
+    let completedByUsername: String?
+    let completedByName: String?
+    let createdAt: String?
+    let updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case helicopterId = "helicopter_id"
+        case templateId = "template_id"
+        case completedAt = "completed_at"
+        case hoursAtCompletion = "hours_at_completion"
+        case notes
+        case completedBy = "completed_by"
+        case maintenanceTitle = "maintenance_title"
+        case maintenanceCategory = "maintenance_category"
+        case maintenanceColor = "maintenance_color"
+        case completedByUsername = "completed_by_username"
+        case completedByName = "completed_by_name"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        helicopterId = try container.decode(Int.self, forKey: .helicopterId)
+        templateId = try container.decode(Int.self, forKey: .templateId)
+        completedAt = try container.decode(String.self, forKey: .completedAt)
+
+        // Handle hoursAtCompletion as either String or Double
+        if let hoursString = try? container.decode(String.self, forKey: .hoursAtCompletion) {
+            hoursAtCompletion = Double(hoursString) ?? 0
+        } else {
+            hoursAtCompletion = try container.decode(Double.self, forKey: .hoursAtCompletion)
+        }
+
+        notes = try? container.decodeIfPresent(String.self, forKey: .notes)
+        completedBy = try? container.decodeIfPresent(Int.self, forKey: .completedBy)
+        maintenanceTitle = try? container.decodeIfPresent(String.self, forKey: .maintenanceTitle)
+        maintenanceCategory = try? container.decodeIfPresent(String.self, forKey: .maintenanceCategory)
+        maintenanceColor = try? container.decodeIfPresent(String.self, forKey: .maintenanceColor)
+        completedByUsername = try? container.decodeIfPresent(String.self, forKey: .completedByUsername)
+        completedByName = try? container.decodeIfPresent(String.self, forKey: .completedByName)
+        createdAt = try? container.decodeIfPresent(String.self, forKey: .createdAt)
+        updatedAt = try? container.decodeIfPresent(String.self, forKey: .updatedAt)
+    }
+}
+
+struct MaintenanceCompletionCreate: Codable {
+    let helicopterId: Int
+    let templateId: Int
+    let hoursAtCompletion: Double
+    let notes: String?
+    let completedBy: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case helicopterId = "helicopter_id"
+        case templateId = "template_id"
+        case hoursAtCompletion = "hours_at_completion"
+        case notes
+        case completedBy = "completed_by"
     }
 }
