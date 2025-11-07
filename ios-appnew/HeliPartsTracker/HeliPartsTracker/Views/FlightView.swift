@@ -14,6 +14,9 @@ struct FlightView: View {
     @State private var showingEditFlight = false
     @State private var editingFlight: Flight? = nil
     @State private var prefilledFlightData: EditFlightView.PrefilledFlightData? = nil
+    @State private var showingCancelFlightAlert = false
+    @State private var flightToDelete: Flight? = nil
+    @State private var showingDeleteFlightAlert = false
 
     var body: some View {
         NavigationView {
@@ -73,7 +76,9 @@ struct FlightView: View {
                                 await viewModel.loadMaintenanceStatus(helicopterId: helicopter.id)
                             }
                         }
-                    }
+                    },
+                    scanOnly: false,
+                    autoOpenCamera: false
                 )
             }
             .sheet(isPresented: $showingAddSquawk) {
@@ -127,6 +132,34 @@ struct FlightView: View {
                 }
             }
         }
+        .alert("Cancel Flight?", isPresented: $showingCancelFlightAlert) {
+            Button("Cancel Flight", role: .destructive) {
+                flightTimer.cancelFlight()
+            }
+            Button("Keep Flying", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to cancel this flight? All flight data will be lost.")
+        }
+        .alert("Delete Flight?", isPresented: $showingDeleteFlightAlert) {
+            Button("Delete", role: .destructive) {
+                if let flight = flightToDelete {
+                    deleteFlight(flight)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                flightToDelete = nil
+            }
+        } message: {
+            if let flight = flightToDelete {
+                if let departureTime = flight.departureTime {
+                    Text("Are you sure you want to delete the flight from \(formatDate(departureTime))? This action cannot be undone.")
+                } else {
+                    Text("Are you sure you want to delete this flight? This action cannot be undone.")
+                }
+            } else {
+                Text("Are you sure you want to delete this flight? This action cannot be undone.")
+            }
+        }
         .task {
             await helicoptersViewModel.loadHelicopters()
             if let helicopter = selectedHelicopter {
@@ -154,7 +187,7 @@ struct FlightView: View {
     // MARK: - Aircraft Banner
 
     private var aircraftBanner: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             // Aircraft Selector - Larger and Bolder
             Menu {
                 ForEach(Array(helicoptersViewModel.helicopters.enumerated()), id: \.element.id) { index, helicopter in
@@ -168,11 +201,24 @@ struct FlightView: View {
                 HStack {
                     Text(selectedHelicopter?.tailNumber ?? "Select Aircraft")
                         .font(.system(size: 42, weight: .heavy))
-                        .foregroundColor(.blue)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(flightTimer.isRunning ? .gray : .blue)
+                    if !flightTimer.isRunning {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    } else {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.orange)
+                    }
                 }
+            }
+            .disabled(flightTimer.isRunning)
+
+            if flightTimer.isRunning {
+                Text("Cannot switch aircraft in flight")
+                    .font(.caption)
+                    .foregroundColor(.orange)
             }
 
             // Maintenance Status Indicators
@@ -193,10 +239,10 @@ struct FlightView: View {
             }
             .padding(.horizontal)
 
-            // Action Buttons (Swapped order)
+            // Action Buttons
             HStack(spacing: 12) {
-                Button(action: { showingAddSquawk = true }) {
-                    Label("Add Squawk", systemImage: "exclamationmark.triangle.fill")
+                Button(action: { showingSquawksSheet = true }) {
+                    Label("Squawks", systemImage: "exclamationmark.triangle.fill")
                         .frame(maxWidth: .infinity)
                         .padding()
                         .background(Color.orange)
@@ -204,35 +250,19 @@ struct FlightView: View {
                         .cornerRadius(10)
                 }
 
-                Button(action: { showingHobbsScanner = true }) {
-                    Label("Scan Hobbs", systemImage: "camera.fill")
+                Button(action: { startFlight() }) {
+                    Label("Start Flight", systemImage: "timer")
                         .frame(maxWidth: .infinity)
                         .padding()
                         .background(Color.blue)
                         .foregroundColor(.white)
                         .cornerRadius(10)
                 }
-            }
-            .padding(.horizontal)
-
-            // View Squawks Button
-            Button(action: { showingSquawksSheet = true }) {
-                HStack {
-                    Image(systemName: "list.bullet.rectangle")
-                        .font(.headline)
-                    Text("View Squawks")
-                        .font(.headline)
-                    Spacer()
-                    Image(systemName: "chevron.up")
-                }
-                .padding()
-                .background(Color(.secondarySystemGroupedBackground))
-                .foregroundColor(.primary)
-                .cornerRadius(10)
+                .disabled(flightTimer.isRunning)
             }
             .padding(.horizontal)
         }
-        .padding(.vertical, 20)
+        .padding(.vertical, 12)
         .background(Color(.systemGroupedBackground))
     }
 
@@ -343,7 +373,7 @@ struct FlightView: View {
                     .padding(.horizontal)
 
                     Button(action: {
-                        flightTimer.cancelFlight()
+                        showingCancelFlightAlert = true
                     }) {
                         Text("Cancel Flight")
                             .font(.caption)
@@ -352,45 +382,6 @@ struct FlightView: View {
                 }
                 .padding()
                 .background(Color(.secondarySystemGroupedBackground))
-            } else {
-                // Start Flight Button
-                VStack(spacing: 12) {
-                    Button(action: {
-                        startFlight()
-                    }) {
-                        HStack {
-                            Image(systemName: "timer")
-                                .font(.title3)
-                            Text("Start Flight")
-                                .font(.headline)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                    }
-                    .padding(.horizontal)
-
-                    Button(action: {
-                        showingHobbsScanner = true
-                    }) {
-                        HStack {
-                            Image(systemName: "camera.metering.matrix")
-                                .font(.title3)
-                            Text("Quick Hobbs Entry")
-                                .font(.headline)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                    }
-                    .padding(.horizontal)
-                }
-                .padding(.vertical)
-                .background(Color(.systemGroupedBackground))
             }
 
             Divider()
@@ -417,6 +408,25 @@ struct FlightView: View {
         )
         editingFlight = nil
         showingEditFlight = true
+    }
+
+    private func deleteFlight(_ flight: Flight) {
+        Task {
+            do {
+                try await APIService.shared.deleteFlight(id: flight.id)
+
+                // Reload flights and helicopters after deletion
+                if let helicopter = selectedHelicopter {
+                    await viewModel.loadFlights(helicopterId: helicopter.id)
+                    await helicoptersViewModel.loadHelicopters()
+                }
+
+                flightToDelete = nil
+            } catch {
+                print("Error deleting flight: \(error)")
+                // Could add error alert here if needed
+            }
+        }
     }
 
     // MARK: - Flights Section
@@ -451,20 +461,28 @@ struct FlightView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 1) {
-                        ForEach(viewModel.flights) { flight in
-                            Button(action: {
+                List {
+                    ForEach(viewModel.flights) { flight in
+                        flightRow(flight: flight)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
                                 editingFlight = flight
                                 prefilledFlightData = nil
                                 showingEditFlight = true
-                            }) {
-                                flightRow(flight: flight)
                             }
-                            .buttonStyle(PlainButtonStyle())
-                        }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    flightToDelete = flight
+                                    showingDeleteFlightAlert = true
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                     }
                 }
+                .listStyle(.plain)
             }
         }
     }

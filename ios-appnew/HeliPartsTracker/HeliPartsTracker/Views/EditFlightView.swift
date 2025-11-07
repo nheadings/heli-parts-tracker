@@ -17,6 +17,8 @@ struct EditFlightView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var showingHobbsEndWarning = false
+    @State private var showingHobbsScanner = false
+    @State private var showingEmptyFlightTimeWarning = false
 
     struct PrefilledFlightData {
         let hobbsStart: Double
@@ -79,6 +81,13 @@ struct EditFlightView: View {
                         TextField("Hobbs End", text: $hobbsEnd)
                             .keyboardType(.decimalPad)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
+                        Button(action: {
+                            showingHobbsScanner = true
+                        }) {
+                            Image(systemName: "camera.fill")
+                                .foregroundColor(.blue)
+                                .font(.title3)
+                        }
                     }
 
                     if let tachTime = calculatedTachTime {
@@ -146,6 +155,25 @@ struct EditFlightView: View {
             } message: {
                 Text("Hobbs End is required. Please enter the final Hobbs reading.")
             }
+            .alert("Save Without Flight Hours?", isPresented: $showingEmptyFlightTimeWarning) {
+                Button("Save Anyway", role: .destructive) {
+                    performSave(allowEmptyFlightTime: true)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Flight time is empty or zero. Are you sure you want to save this flight without flight hours?")
+            }
+            .sheet(isPresented: $showingHobbsScanner) {
+                HobbsScannerView(
+                    helicopterId: helicopterId,
+                    currentHours: Double(hobbsStart) ?? 0,
+                    onHobbsScanned: { scannedHours in
+                        hobbsEnd = String(format: "%.1f", scannedHours)
+                    },
+                    scanOnly: true,
+                    autoOpenCamera: true
+                )
+            }
         }
     }
 
@@ -168,9 +196,8 @@ struct EditFlightView: View {
         }
 
         guard let hobbsStartValue = Double(hobbsStart),
-              let hobbsEndValue = Double(hobbsEnd),
-              let flightTimeValue = Double(flightTime) else {
-            errorMessage = "Please enter valid numbers for all fields"
+              let hobbsEndValue = Double(hobbsEnd) else {
+            errorMessage = "Please enter valid numbers for Hobbs readings"
             return
         }
 
@@ -179,8 +206,30 @@ struct EditFlightView: View {
             return
         }
 
-        guard flightTimeValue > 0 else {
-            errorMessage = "Flight time must be greater than 0"
+        // Check if flight time is empty or zero - show confirmation
+        let flightTimeValue = Double(flightTime) ?? 0
+        if flightTimeValue <= 0 {
+            showingEmptyFlightTimeWarning = true
+            return
+        }
+
+        // If we got here, flight time is valid, proceed with save
+        performSave(allowEmptyFlightTime: false)
+    }
+
+    private func performSave(allowEmptyFlightTime: Bool) {
+        errorMessage = nil
+
+        guard let hobbsStartValue = Double(hobbsStart),
+              let hobbsEndValue = Double(hobbsEnd) else {
+            errorMessage = "Please enter valid numbers for Hobbs readings"
+            return
+        }
+
+        let flightTimeValue = Double(flightTime) ?? 0
+
+        // If not allowing empty flight time and it's still empty/zero, return
+        if !allowEmptyFlightTime && flightTimeValue <= 0 {
             return
         }
 
@@ -194,7 +243,7 @@ struct EditFlightView: View {
                 let flightCreate = FlightCreate(
                     hobbsStart: hobbsStartValue,
                     hobbsEnd: hobbsEndValue,
-                    flightTime: flightTimeValue,
+                    flightTime: flightTimeValue > 0 ? flightTimeValue : nil,
                     tachTime: tachTime,
                     departureTime: formatter.string(from: departureTime),
                     arrivalTime: formatter.string(from: arrivalTime),

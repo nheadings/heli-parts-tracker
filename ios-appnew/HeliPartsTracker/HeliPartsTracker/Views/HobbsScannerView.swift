@@ -1,10 +1,13 @@
 import SwiftUI
+import Vision
 
 struct HobbsScannerView: View {
     @Environment(\.dismiss) private var dismiss
     let helicopterId: Int
     let currentHours: Double
     let onHobbsScanned: (Double) -> Void
+    let scanOnly: Bool  // If true, only scan and return value, don't update DB
+    let autoOpenCamera: Bool  // If true, automatically open camera on appear
 
     @State private var showingCamera = false
     @State private var capturedImage: UIImage?
@@ -152,6 +155,16 @@ struct HobbsScannerView: View {
                     Text("You're about to add \(String(format: "%.1f", difference)) hours, which is unusually high for a single flight. Are you sure this is correct?")
                 }
             }
+            .onAppear {
+                if autoOpenCamera {
+                    showingCamera = true
+                }
+            }
+            .onChange(of: capturedImage) { image in
+                if let image = image {
+                    performOCR(on: image)
+                }
+            }
         }
     }
 
@@ -190,6 +203,13 @@ struct HobbsScannerView: View {
     }
 
     private func performSave(hours: Double) {
+        // If scanOnly mode, just return the value without saving to DB
+        if scanOnly {
+            onHobbsScanned(hours)
+            dismiss()
+            return
+        }
+
         isSaving = true
         errorMessage = nil
         warningMessage = nil
@@ -243,13 +263,50 @@ struct HobbsScannerView: View {
         }
     }
 
+    private func performOCR(on image: UIImage) {
+        guard let cgImage = image.cgImage else { return }
+
+        let request = VNRecognizeTextRequest { request, error in
+            guard let observations = request.results as? [VNRecognizedTextObservation] else { return }
+
+            let recognizedText = observations.compactMap { observation in
+                observation.topCandidates(1).first?.string
+            }.joined(separator: " ")
+
+            // Extract hours from recognized text
+            if let hours = extractHoursFromOCR(recognizedText) {
+                DispatchQueue.main.async {
+                    hobbsHours = String(format: "%.1f", hours)
+                }
+            }
+        }
+
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        DispatchQueue.global(qos: .userInitiated).async {
+            try? handler.perform([request])
+        }
+    }
+
     private func extractHoursFromOCR(_ text: String) -> Double? {
-        // Simple extraction - look for numbers that could be Hobbs hours
-        let pattern = "\\d+\\.?\\d*"
+        // Look for numbers with optional decimal point (e.g., 1234.5, 1234, 123.45)
+        // Prioritize numbers that look like Hobbs readings (typically 3-5 digits)
+        let pattern = "\\d{3,5}(?:\\.\\d{1,2})?"
+
         if let range = text.range(of: pattern, options: .regularExpression) {
             let numberString = String(text[range])
             return Double(numberString)
         }
+
+        // Fallback to any decimal number
+        let fallbackPattern = "\\d+\\.\\d+"
+        if let range = text.range(of: fallbackPattern, options: .regularExpression) {
+            let numberString = String(text[range])
+            return Double(numberString)
+        }
+
         return nil
     }
 }
