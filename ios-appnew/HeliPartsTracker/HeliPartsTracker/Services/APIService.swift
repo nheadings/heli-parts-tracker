@@ -408,7 +408,15 @@ class APIService {
         }
 
         if let body = body {
-            request.httpBody = try JSONEncoder().encode(body)
+            let encoder = JSONEncoder()
+            let jsonData = try encoder.encode(body)
+            request.httpBody = jsonData
+
+            // Debug: Print the JSON being sent
+            if let jsonString = String(data: jsonData, encoding: .utf8) {
+                print("DEBUG API - Sending \(method) to \(endpoint):")
+                print(jsonString)
+            }
         }
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -419,6 +427,12 @@ class APIService {
 
         guard httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 else {
             throw APIError.serverError(httpResponse.statusCode)
+        }
+
+        // Debug: Print the response
+        if let responseString = String(data: data, encoding: .utf8) {
+            print("DEBUG API - Response from \(endpoint):")
+            print(responseString)
         }
 
         return try JSONDecoder().decode(T.self, from: data)

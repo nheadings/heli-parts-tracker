@@ -3,6 +3,7 @@ import SwiftUI
 struct AddHelicopterView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var viewModel: HelicoptersViewModel
+    var helicopter: Helicopter? = nil  // If not nil, we're editing
 
     @State private var tailNumber = ""
     @State private var model = ""
@@ -11,6 +12,7 @@ struct AddHelicopterView: View {
     @State private var serialNumber = ""
     @State private var status = ""
     @State private var showingError = false
+    @State private var hasLoadedData = false
 
     var body: some View {
         NavigationView {
@@ -21,21 +23,63 @@ struct AddHelicopterView: View {
                 }
 
                 Section("Details") {
-                    TextField("Manufacturer", text: $manufacturer)
-                    TextField("Year Manufactured", text: $yearManufactured)
-                        .keyboardType(.numberPad)
-                    TextField("Serial Number", text: $serialNumber)
+                    HStack {
+                        TextField("Manufacturer", text: $manufacturer)
+                        if !manufacturer.isEmpty {
+                            Button(action: {
+                                manufacturer = ""
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    }
+
+                    HStack {
+                        TextField("Year Manufactured", text: $yearManufactured)
+                            .keyboardType(.numberPad)
+                        if !yearManufactured.isEmpty {
+                            Button(action: {
+                                yearManufactured = ""
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    }
+
+                    HStack {
+                        TextField("Serial Number", text: $serialNumber)
+                        if !serialNumber.isEmpty {
+                            Button(action: {
+                                serialNumber = ""
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    }
                 }
 
                 Section("Status") {
-                    TextField("Status", text: $status)
-                        .placeholder(when: status.isEmpty) {
-                            Text("e.g., Active, Maintenance, Retired")
-                                .foregroundColor(.gray)
+                    HStack {
+                        TextField("Status", text: $status)
+                            .placeholder(when: status.isEmpty) {
+                                Text("e.g., Active, Maintenance, Retired")
+                                    .foregroundColor(.gray)
+                            }
+                        if !status.isEmpty {
+                            Button(action: {
+                                status = ""
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.gray)
+                            }
                         }
+                    }
                 }
             }
-            .navigationTitle("Add Helicopter")
+            .navigationTitle(helicopter == nil ? "Add Helicopter" : "Edit Helicopter")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -57,6 +101,18 @@ struct AddHelicopterView: View {
             } message: {
                 Text(viewModel.errorMessage ?? "Unknown error")
             }
+            .onAppear {
+                if !hasLoadedData, let helicopter = helicopter {
+                    // Pre-populate fields when editing
+                    tailNumber = helicopter.tailNumber
+                    model = helicopter.model
+                    manufacturer = helicopter.manufacturer ?? ""
+                    yearManufactured = helicopter.yearManufactured.map { String($0) } ?? ""
+                    serialNumber = helicopter.serialNumber ?? ""
+                    status = helicopter.status ?? ""
+                    hasLoadedData = true
+                }
+            }
         }
     }
 
@@ -65,16 +121,39 @@ struct AddHelicopterView: View {
     }
 
     private func saveHelicopter() async {
-        let helicopter = HelicopterCreate(
+        let trimmedManufacturer = manufacturer.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSerial = serialNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedStatus = status.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedYear = yearManufactured.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let helicopterData = HelicopterCreate(
             tailNumber: tailNumber,
             model: model,
-            manufacturer: manufacturer.isEmpty ? nil : manufacturer,
-            yearManufactured: Int(yearManufactured),
-            serialNumber: serialNumber.isEmpty ? nil : serialNumber,
-            status: status.isEmpty ? nil : status
+            manufacturer: trimmedManufacturer.isEmpty ? nil : trimmedManufacturer,
+            yearManufactured: trimmedYear.isEmpty ? nil : Int(trimmedYear),
+            serialNumber: trimmedSerial.isEmpty ? nil : trimmedSerial,
+            status: trimmedStatus.isEmpty ? nil : trimmedStatus
         )
 
-        let success = await viewModel.createHelicopter(helicopter)
+        // Debug logging
+        print("DEBUG - Saving helicopter:")
+        print("  Tail Number: \(tailNumber)")
+        print("  Model: \(model)")
+        print("  Manufacturer: \(trimmedManufacturer.isEmpty ? "nil" : trimmedManufacturer)")
+        print("  Year: \(trimmedYear.isEmpty ? "nil" : trimmedYear)")
+        print("  Serial: \(trimmedSerial.isEmpty ? "nil" : trimmedSerial)")
+        print("  Status: \(trimmedStatus.isEmpty ? "nil" : trimmedStatus)")
+
+        let success: Bool
+        if let existingHelicopter = helicopter {
+            // Update existing helicopter
+            print("DEBUG - Updating helicopter ID: \(existingHelicopter.id)")
+            success = await viewModel.updateHelicopter(id: existingHelicopter.id, helicopterData)
+        } else {
+            // Create new helicopter
+            success = await viewModel.createHelicopter(helicopterData)
+        }
+
         if success {
             dismiss()
         } else {

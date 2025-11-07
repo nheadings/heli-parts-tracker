@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct HelicopterDetailView: View {
-    let helicopter: Helicopter
+    let helicopterId: Int
     @ObservedObject var viewModel: HelicoptersViewModel
     @EnvironmentObject var partsViewModel: PartsViewModel
     @State private var showingInstallPart = false
@@ -10,6 +10,16 @@ struct HelicopterDetailView: View {
     @State private var installationToDelete: PartInstallation?
     @State private var showingDeletionError = false
     @State private var deletionErrorMessage = ""
+
+    // Computed property to get the current helicopter from the view model
+    private var helicopter: Helicopter? {
+        viewModel.helicopters.first { $0.id == helicopterId }
+    }
+
+    init(helicopter: Helicopter, viewModel: HelicoptersViewModel) {
+        self.helicopterId = helicopter.id
+        self.viewModel = viewModel
+    }
 
     var body: some View {
         List {
@@ -34,7 +44,7 @@ struct HelicopterDetailView: View {
                 }
             }
 
-            if !viewModel.isLoading {
+            if !viewModel.isLoading, let helicopter = helicopter {
                     Section("Helicopter Information") {
                         DetailRow(label: "Tail Number", value: helicopter.tailNumber)
                         DetailRow(label: "Model", value: helicopter.model)
@@ -97,29 +107,45 @@ struct HelicopterDetailView: View {
                     }
             }
         }
-        .navigationTitle(helicopter.tailNumber)
+        .navigationTitle(helicopter?.tailNumber ?? "Helicopter")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showingInstallPart = true }) {
-                    Image(systemName: "plus")
+                HStack(spacing: 16) {
+                    Button(action: { showingEdit = true }) {
+                        Image(systemName: "pencil")
+                    }
+                    Button(action: { showingInstallPart = true }) {
+                        Image(systemName: "plus")
+                    }
                 }
             }
         }
         .sheet(isPresented: $showingInstallPart, onDismiss: {
             Task {
-                await viewModel.loadHelicopterParts(helicopterId: helicopter.id)
+                await viewModel.loadHelicopterParts(helicopterId: helicopterId)
             }
         }) {
-            InstallPartView(helicopter: helicopter)
-                .environmentObject(viewModel)
-                .environmentObject(partsViewModel)
+            if let helicopter = helicopter {
+                InstallPartView(helicopter: helicopter)
+                    .environmentObject(viewModel)
+                    .environmentObject(partsViewModel)
+            }
+        }
+        .sheet(isPresented: $showingEdit, onDismiss: {
+            Task {
+                await viewModel.loadHelicopters()
+            }
+        }) {
+            if let helicopter = helicopter {
+                AddHelicopterView(viewModel: viewModel, helicopter: helicopter)
+            }
         }
         .task {
-            await viewModel.loadHelicopterParts(helicopterId: helicopter.id)
+            await viewModel.loadHelicopterParts(helicopterId: helicopterId)
         }
         .refreshable {
-            await viewModel.loadHelicopterParts(helicopterId: helicopter.id)
+            await viewModel.loadHelicopterParts(helicopterId: helicopterId)
         }
         .alert("Remove Part", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
@@ -139,7 +165,7 @@ struct HelicopterDetailView: View {
             }
         } message: {
             if let installation = installationToDelete {
-                Text("Are you sure you want to remove \(installation.partNumber ?? "this part") from \(helicopter.tailNumber)?")
+                Text("Are you sure you want to remove \(installation.partNumber ?? "this part") from \(helicopter?.tailNumber ?? "this helicopter")?")
             } else {
                 Text("Are you sure you want to remove this part from the helicopter?")
             }
@@ -155,7 +181,7 @@ struct HelicopterDetailView: View {
 
     private func removeInstallation(_ installation: PartInstallation) async -> Bool {
         let originalError = viewModel.errorMessage
-        await viewModel.removeInstallation(installation, helicopterId: helicopter.id)
+        await viewModel.removeInstallation(installation, helicopterId: helicopterId)
 
         // Check if a new error was set
         if let error = viewModel.errorMessage, error != originalError {

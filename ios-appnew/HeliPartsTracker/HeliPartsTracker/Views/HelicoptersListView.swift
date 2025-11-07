@@ -4,62 +4,110 @@ struct HelicoptersListView: View {
     @EnvironmentObject var viewModel: HelicoptersViewModel
     @EnvironmentObject var partsViewModel: PartsViewModel
     @State private var showingAddHelicopter = false
+    @State private var helicopterToDelete: Helicopter?
+    @State private var showingFirstDeleteWarning = false
+    @State private var showingSecondDeleteWarning = false
 
     var body: some View {
         NavigationView {
-            List {
-                if viewModel.isLoading {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                        Spacer()
+            helicoptersList
+                .navigationTitle("Helicopters")
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button(action: { showingAddHelicopter = true }) {
+                            Image(systemName: "plus")
+                        }
                     }
                 }
+                .sheet(isPresented: $showingAddHelicopter) {
+                    AddHelicopterView(viewModel: viewModel)
+                }
+                .task {
+                    await viewModel.loadHelicopters()
+                }
+                .refreshable {
+                    await viewModel.loadHelicopters()
+                }
+        }
+        .alert("⚠️ DELETE AIRCRAFT?", isPresented: $showingFirstDeleteWarning, actions: {
+            Button("Cancel", role: .cancel) {
+                helicopterToDelete = nil
+            }
+            Button("Continue", role: .destructive) {
+                showingSecondDeleteWarning = true
+            }
+        }, message: {
+            Text(firstDeleteMessage)
+        })
+        .alert("⚠️⚠️ FINAL WARNING ⚠️⚠️", isPresented: $showingSecondDeleteWarning, actions: {
+            Button("Cancel - Keep Aircraft", role: .cancel) {
+                helicopterToDelete = nil
+            }
+            Button("YES - DELETE PERMANENTLY", role: .destructive) {
+                performDelete()
+            }
+        }, message: {
+            Text(secondDeleteMessage)
+        })
+    }
 
-                if let error = viewModel.errorMessage {
-                    Section {
-                        Text(error)
-                            .foregroundColor(.red)
-                    }
+    private var helicoptersList: some View {
+        List {
+            if viewModel.isLoading {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
                 }
+            }
 
-                ForEach(viewModel.helicopters) { helicopter in
-                    NavigationLink(destination: HelicopterDetailView(helicopter: helicopter, viewModel: viewModel)
-                        .environmentObject(partsViewModel)
-                        .onAppear {
-                            viewModel.selectedHelicopter = helicopter
-                        }) {
-                        HelicopterRowView(helicopter: helicopter, isSelected: viewModel.selectedHelicopter?.id == helicopter.id)
-                    }
-                }
-                .onDelete(perform: deleteHelicopters)
-            }
-            .navigationTitle("Helicopters")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showingAddHelicopter = true }) {
-                        Image(systemName: "plus")
-                    }
+            if let error = viewModel.errorMessage {
+                Section {
+                    Text(error)
+                        .foregroundColor(.red)
                 }
             }
-            .sheet(isPresented: $showingAddHelicopter) {
-                AddHelicopterView(viewModel: viewModel)
-            }
-            .task {
-                await viewModel.loadHelicopters()
-            }
-            .refreshable {
-                await viewModel.loadHelicopters()
+
+            ForEach(viewModel.helicopters) { helicopter in
+                helicopterRow(for: helicopter)
             }
         }
     }
 
-    private func deleteHelicopters(at offsets: IndexSet) {
-        for index in offsets {
-            let helicopter = viewModel.helicopters[index]
-            Task {
-                await viewModel.deleteHelicopter(helicopter)
+    @ViewBuilder
+    private func helicopterRow(for helicopter: Helicopter) -> some View {
+        NavigationLink(destination: HelicopterDetailView(helicopter: helicopter, viewModel: viewModel)
+            .environmentObject(partsViewModel)
+            .onAppear {
+                viewModel.selectedHelicopter = helicopter
+            }) {
+            HelicopterRowView(helicopter: helicopter, isSelected: viewModel.selectedHelicopter?.id == helicopter.id)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                helicopterToDelete = helicopter
+                showingFirstDeleteWarning = true
+            } label: {
+                Label("Delete", systemImage: "trash")
             }
+        }
+    }
+
+    private var firstDeleteMessage: String {
+        guard let helicopter = helicopterToDelete else { return "" }
+        return "Are you ABSOLUTELY SURE you want to delete \(helicopter.tailNumber)? This will permanently delete ALL flights, parts, and maintenance records for this aircraft."
+    }
+
+    private var secondDeleteMessage: String {
+        guard let helicopter = helicopterToDelete else { return "" }
+        return "LAST CHANCE! Deleting \(helicopter.tailNumber) is PERMANENT and CANNOT BE UNDONE. All associated data will be LOST FOREVER. Are you 100% certain?"
+    }
+
+    private func performDelete() {
+        guard let helicopter = helicopterToDelete else { return }
+        Task {
+            await viewModel.deleteHelicopter(helicopter)
+            helicopterToDelete = nil
         }
     }
 }
@@ -95,12 +143,6 @@ struct HelicopterRowView: View {
             .padding(.vertical, 4)
 
             Spacer()
-
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.blue)
-                    .font(.title3)
-            }
         }
     }
 }

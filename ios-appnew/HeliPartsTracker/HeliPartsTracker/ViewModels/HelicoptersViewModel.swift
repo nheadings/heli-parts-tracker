@@ -93,6 +93,22 @@ class HelicoptersViewModel: ObservableObject {
         }
     }
 
+    func updateHelicopter(id: Int, _ helicopterData: HelicopterCreate) async -> Bool {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            _ = try await apiService.updateHelicopter(id: id, helicopterData)
+            await loadHelicopters()
+            isLoading = false
+            return true
+        } catch {
+            errorMessage = "Failed to update helicopter: \(error.localizedDescription)"
+            isLoading = false
+            return false
+        }
+    }
+
     func deleteHelicopter(_ helicopter: Helicopter) async {
         isLoading = true
         errorMessage = nil

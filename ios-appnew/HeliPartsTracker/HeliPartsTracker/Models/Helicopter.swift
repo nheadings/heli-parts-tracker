@@ -155,4 +155,15 @@ struct HelicopterCreate: Codable {
         case serialNumber = "serial_number"
         case status
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(tailNumber, forKey: .tailNumber)
+        try container.encode(model, forKey: .model)
+        // Explicitly encode nil values as null
+        try container.encode(manufacturer, forKey: .manufacturer)
+        try container.encode(yearManufactured, forKey: .yearManufactured)
+        try container.encode(serialNumber, forKey: .serialNumber)
+        try container.encode(status, forKey: .status)
+    }
 }

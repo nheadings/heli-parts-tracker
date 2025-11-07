@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(open:*)",
-      "Bash(./run-flights-migration.sh:*)"
+      "Bash(./run-flights-migration.sh:*)",
+      "Bash(sshpass:*)"
     ],
     "deny": [],
     "ask": []
