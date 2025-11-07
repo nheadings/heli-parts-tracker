@@ -142,7 +142,7 @@ router.get('/entries', async (req, res) => {
         h.tail_number,
         u.username as performed_by_username,
         u.full_name as performed_by_name,
-        (SELECT COUNT(*) FROM logbook_attachments WHERE entry_id = e.id) as attachment_count
+        (SELECT COUNT(*)::INTEGER FROM logbook_attachments WHERE entry_id = e.id) as attachment_count
       FROM logbook_entries e
       JOIN logbook_categories c ON e.category_id = c.id
       JOIN helicopters h ON e.helicopter_id = h.id
@@ -266,20 +266,43 @@ router.post('/entries', async (req, res) => {
   const userId = req.user.id;
 
   try {
-    const result = await pool.query(
+    const insertResult = await pool.query(
       `INSERT INTO logbook_entries
        (helicopter_id, category_id, event_date, hours_at_event, description, notes,
         performed_by, cost, next_due_hours, next_due_date)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING *`,
+       RETURNING id`,
       [helicopter_id, category_id, event_date || new Date(), hours_at_event, description,
        notes, userId, cost, next_due_hours, next_due_date]
     );
 
-    res.json(result.rows[0]);
+    // Fetch the complete entry with joined fields
+    const entryId = insertResult.rows[0].id;
+    const result = await pool.query(
+      `SELECT
+        e.*,
+        c.name as category_name,
+        c.icon as category_icon,
+        c.color as category_color,
+        h.tail_number,
+        u.username as performed_by_username,
+        u.full_name as performed_by_name,
+        (SELECT COUNT(*)::INTEGER FROM logbook_attachments WHERE entry_id = e.id) as attachment_count
+      FROM logbook_entries e
+      JOIN logbook_categories c ON e.category_id = c.id
+      JOIN helicopters h ON e.helicopter_id = h.id
+      LEFT JOIN users u ON e.performed_by = u.id
+      WHERE e.id = $1`,
+      [entryId]
+    );
+
+    const entry = result.rows[0];
+    console.log('Created entry response:', JSON.stringify(entry, null, 2));
+    res.json(entry);
   } catch (error) {
     console.error('Create entry error:', error);
-    res.status(500).json({ error: 'Failed to create entry' });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: 'Failed to create entry', details: error.message });
   }
 });
 
@@ -298,24 +321,46 @@ router.put('/entries/:id', async (req, res) => {
   } = req.body;
 
   try {
-    const result = await pool.query(
+    const updateResult = await pool.query(
       `UPDATE logbook_entries
        SET category_id = $1, event_date = $2, hours_at_event = $3, description = $4,
            notes = $5, cost = $6, next_due_hours = $7, next_due_date = $8
        WHERE id = $9
-       RETURNING *`,
+       RETURNING id`,
       [category_id, event_date, hours_at_event, description, notes, cost,
        next_due_hours, next_due_date, id]
     );
 
-    if (result.rows.length === 0) {
+    if (updateResult.rows.length === 0) {
       return res.status(404).json({ error: 'Entry not found' });
     }
 
-    res.json(result.rows[0]);
+    // Fetch the complete entry with joined fields
+    const result = await pool.query(
+      `SELECT
+        e.*,
+        c.name as category_name,
+        c.icon as category_icon,
+        c.color as category_color,
+        h.tail_number,
+        u.username as performed_by_username,
+        u.full_name as performed_by_name,
+        (SELECT COUNT(*)::INTEGER FROM logbook_attachments WHERE entry_id = e.id) as attachment_count
+      FROM logbook_entries e
+      JOIN logbook_categories c ON e.category_id = c.id
+      JOIN helicopters h ON e.helicopter_id = h.id
+      LEFT JOIN users u ON e.performed_by = u.id
+      WHERE e.id = $1`,
+      [id]
+    );
+
+    const entry = result.rows[0];
+    console.log('Updated entry response:', JSON.stringify(entry, null, 2));
+    res.json(entry);
   } catch (error) {
     console.error('Update entry error:', error);
-    res.status(500).json({ error: 'Failed to update entry' });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: 'Failed to update entry', details: error.message });
   }
 });
 
@@ -337,7 +382,9 @@ router.delete('/entries/:id', async (req, res) => {
     // Delete files from filesystem
     for (const attachment of attachments.rows) {
       try {
-        await fs.unlink(attachment.file_path);
+        // Convert URL path to filesystem path
+        const absolutePath = path.join(__dirname, '..', attachment.file_path);
+        await fs.unlink(absolutePath);
       } catch (err) {
         console.error('Failed to delete file:', err);
       }
@@ -382,12 +429,15 @@ router.post('/entries/:entryId/attachments', upload.single('file'), async (req, 
   }
 
   try {
+    // Store URL path instead of filesystem path (like squawks do)
+    const fileUrl = `/uploads/logbook/${req.file.filename}`;
+
     const result = await pool.query(
       `INSERT INTO logbook_attachments
        (entry_id, file_name, file_path, file_type, file_size, uploaded_by)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [entryId, req.file.originalname, req.file.path, req.file.mimetype, req.file.size, userId]
+      [entryId, req.file.originalname, fileUrl, req.file.mimetype, req.file.size, userId]
     );
 
     res.json(result.rows[0]);
@@ -417,9 +467,13 @@ router.delete('/attachments/:id', async (req, res) => {
       return res.status(404).json({ error: 'Attachment not found' });
     }
 
-    // Delete file from filesystem
+    // Convert URL path to filesystem path and delete file
+    const filePath = result.rows[0].file_path;
+    // filePath is like "/uploads/logbook/123-file.jpg", convert to absolute path
+    const absolutePath = path.join(__dirname, '..', filePath);
+
     try {
-      await fs.unlink(result.rows[0].file_path);
+      await fs.unlink(absolutePath);
     } catch (err) {
       console.error('Failed to delete file:', err);
     }

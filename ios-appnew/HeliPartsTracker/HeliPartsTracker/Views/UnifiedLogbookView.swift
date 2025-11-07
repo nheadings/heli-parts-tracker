@@ -16,6 +16,7 @@ struct UnifiedLogbookView: View {
     @State private var showingDatePicker = false
     @State private var selectedEntry: LogbookEntry? = nil
     @State private var showingAddEntry = false
+    @State private var isRefreshing = false
 
     var body: some View {
         NavigationView {
@@ -39,8 +40,34 @@ struct UnifiedLogbookView: View {
                 }
             }
             .navigationTitle("Logbook")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarTitleDisplayMode(.inlineLarge)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Menu {
+                        Button(action: {
+                            selectedHelicopterId = "all"
+                        }) {
+                            Text("All Aircraft")
+                        }
+                        ForEach(helicoptersViewModel.helicopters) { heli in
+                            Button(action: {
+                                selectedHelicopterId = String(heli.id)
+                            }) {
+                                Text(heli.tailNumber)
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Text(selectedHelicopterId == "all" ? "All Aircraft" : helicoptersViewModel.helicopters.first(where: { String($0.id) == selectedHelicopterId })?.tailNumber ?? "Select Aircraft")
+                                .font(.system(size: 28, weight: .bold))
+                                .foregroundColor(.blue)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: { showingFilters.toggle() }) {
                         Image(systemName: showingFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
@@ -60,20 +87,29 @@ struct UnifiedLogbookView: View {
             await viewModel.loadCategories()
             await loadEntries()
         }
+        .onChange(of: selectedHelicopterId) {
+            Task {
+                await loadEntries()
+            }
+        }
         .sheet(item: $selectedEntry) { entry in
             LogbookEntryDetailView(entry: entry, onUpdate: {
                 Task {
                     await loadEntries()
                 }
             })
+            .environmentObject(helicoptersViewModel)
             .environmentObject(viewModel)
         }
         .sheet(isPresented: $showingAddEntry) {
-            AddLogbookEntryView(onSave: {
-                Task {
-                    await loadEntries()
+            AddLogbookEntryView(
+                defaultHelicopterId: selectedHelicopterId == "all" ? nil : Int(selectedHelicopterId),
+                onSave: {
+                    Task {
+                        await loadEntries()
+                    }
                 }
-            })
+            )
             .environmentObject(helicoptersViewModel)
             .environmentObject(viewModel)
         }
@@ -83,24 +119,6 @@ struct UnifiedLogbookView: View {
 
     private var filterSection: some View {
         VStack(spacing: 12) {
-            // Tail Number Filter
-            HStack {
-                Text("Aircraft:")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Picker("Aircraft", selection: $selectedHelicopterId) {
-                    Text("All").tag("all")
-                    ForEach(helicoptersViewModel.helicopters) { heli in
-                        Text(heli.tailNumber).tag(String(heli.id))
-                    }
-                }
-                .pickerStyle(.menu)
-                .onChange(of: selectedHelicopterId) {
-                    Task { await loadEntries() }
-                }
-            }
-
             // Category Filter
             HStack {
                 Text("Categories:")

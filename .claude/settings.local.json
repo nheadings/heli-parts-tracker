@@ -3,7 +3,10 @@
     "allow": [
       "Bash(open:*)",
       "Bash(./run-flights-migration.sh:*)",
-      "Bash(sshpass:*)"
+      "Bash(sshpass:*)",
+      "Bash(find:*)",
+      "Bash(npm install:*)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

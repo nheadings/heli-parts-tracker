@@ -101,6 +101,53 @@ struct LogbookEntry: Codable, Identifiable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decode(Int.self, forKey: .id)
+        helicopterId = try container.decode(Int.self, forKey: .helicopterId)
+        categoryId = try container.decode(Int.self, forKey: .categoryId)
+        eventDate = try container.decode(String.self, forKey: .eventDate)
+        description = try container.decode(String.self, forKey: .description)
+        notes = try? container.decodeIfPresent(String.self, forKey: .notes)
+        performedBy = try? container.decodeIfPresent(Int.self, forKey: .performedBy)
+        nextDueDate = try? container.decodeIfPresent(String.self, forKey: .nextDueDate)
+        flightId = try? container.decodeIfPresent(Int.self, forKey: .flightId)
+        maintenanceLogId = try? container.decodeIfPresent(Int.self, forKey: .maintenanceLogId)
+        maintenanceCompletionId = try? container.decodeIfPresent(Int.self, forKey: .maintenanceCompletionId)
+        fluidLogId = try? container.decodeIfPresent(Int.self, forKey: .fluidLogId)
+        partInstallationId = try? container.decodeIfPresent(Int.self, forKey: .partInstallationId)
+        squawkId = try? container.decodeIfPresent(Int.self, forKey: .squawkId)
+        categoryName = try container.decode(String.self, forKey: .categoryName)
+        categoryIcon = try container.decode(String.self, forKey: .categoryIcon)
+        categoryColor = try container.decode(String.self, forKey: .categoryColor)
+        tailNumber = try container.decode(String.self, forKey: .tailNumber)
+        performedByUsername = try? container.decodeIfPresent(String.self, forKey: .performedByUsername)
+        performedByName = try? container.decodeIfPresent(String.self, forKey: .performedByName)
+        attachmentCount = try? container.decodeIfPresent(Int.self, forKey: .attachmentCount)
+        createdAt = try? container.decodeIfPresent(String.self, forKey: .createdAt)
+        updatedAt = try? container.decodeIfPresent(String.self, forKey: .updatedAt)
+
+        // Handle numeric fields that may come as strings from PostgreSQL
+        if let hoursString = try? container.decodeIfPresent(String.self, forKey: .hoursAtEvent) {
+            hoursAtEvent = Double(hoursString)
+        } else {
+            hoursAtEvent = try? container.decodeIfPresent(Double.self, forKey: .hoursAtEvent)
+        }
+
+        if let costString = try? container.decodeIfPresent(String.self, forKey: .cost) {
+            cost = Double(costString)
+        } else {
+            cost = try? container.decodeIfPresent(Double.self, forKey: .cost)
+        }
+
+        if let nextHoursString = try? container.decodeIfPresent(String.self, forKey: .nextDueHours) {
+            nextDueHours = Double(nextHoursString)
+        } else {
+            nextDueHours = try? container.decodeIfPresent(Double.self, forKey: .nextDueHours)
+        }
+    }
 }
 
 struct LogbookEntryDetail: Codable, Identifiable {
@@ -146,6 +193,45 @@ struct LogbookEntryDetail: Codable, Identifiable {
         case performedByUsername = "performed_by_username"
         case performedByName = "performed_by_name"
         case attachments
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decode(Int.self, forKey: .id)
+        helicopterId = try container.decode(Int.self, forKey: .helicopterId)
+        categoryId = try container.decode(Int.self, forKey: .categoryId)
+        eventDate = try container.decode(String.self, forKey: .eventDate)
+        description = try container.decode(String.self, forKey: .description)
+        notes = try? container.decodeIfPresent(String.self, forKey: .notes)
+        performedBy = try? container.decodeIfPresent(Int.self, forKey: .performedBy)
+        nextDueDate = try? container.decodeIfPresent(String.self, forKey: .nextDueDate)
+        categoryName = try container.decode(String.self, forKey: .categoryName)
+        categoryIcon = try container.decode(String.self, forKey: .categoryIcon)
+        categoryColor = try container.decode(String.self, forKey: .categoryColor)
+        tailNumber = try container.decode(String.self, forKey: .tailNumber)
+        performedByUsername = try? container.decodeIfPresent(String.self, forKey: .performedByUsername)
+        performedByName = try? container.decodeIfPresent(String.self, forKey: .performedByName)
+        attachments = try container.decode([LogbookAttachment].self, forKey: .attachments)
+
+        // Handle numeric fields that may come as strings from PostgreSQL
+        if let hoursString = try? container.decodeIfPresent(String.self, forKey: .hoursAtEvent) {
+            hoursAtEvent = Double(hoursString)
+        } else {
+            hoursAtEvent = try? container.decodeIfPresent(Double.self, forKey: .hoursAtEvent)
+        }
+
+        if let costString = try? container.decodeIfPresent(String.self, forKey: .cost) {
+            cost = Double(costString)
+        } else {
+            cost = try? container.decodeIfPresent(Double.self, forKey: .cost)
+        }
+
+        if let nextHoursString = try? container.decodeIfPresent(String.self, forKey: .nextDueHours) {
+            nextDueHours = Double(nextHoursString)
+        } else {
+            nextDueHours = try? container.decodeIfPresent(Double.self, forKey: .nextDueHours)
+        }
     }
 }
 

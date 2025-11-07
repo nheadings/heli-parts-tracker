@@ -8,12 +8,15 @@ struct LogbookEntryDetailView: View {
     let onUpdate: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var helicoptersViewModel: HelicoptersViewModel
+    @EnvironmentObject var logbookViewModel: UnifiedLogbookViewModel
     @StateObject private var viewModel = LogbookEntryDetailViewModel()
     @State private var showingEdit = false
     @State private var showingDeleteAlert = false
-    @State private var showingDocumentPicker = false
+    @State private var showingCamera = false
     @State private var showingImagePicker = false
-    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var showingDocumentPicker = false
+    @State private var selectedPhotoUrl: String? = nil
 
     var body: some View {
         NavigationView {
@@ -69,12 +72,14 @@ struct LogbookEntryDetailView: View {
         }
         .sheet(isPresented: $showingEdit) {
             if let entryDetail = viewModel.entryDetail {
-                AddLogbookEntryView(existingEntry: entryDetail, onSave: {
+                AddLogbookEntryView(existingEntry: entryDetail, defaultHelicopterId: nil, onSave: {
                     Task {
                         await viewModel.loadEntry(id: entry.id)
                         onUpdate()
                     }
                 })
+                .environmentObject(helicoptersViewModel)
+                .environmentObject(logbookViewModel)
             }
         }
         .alert("Delete Entry?", isPresented: $showingDeleteAlert) {
@@ -87,11 +92,22 @@ struct LogbookEntryDetailView: View {
         } message: {
             Text("This will permanently delete this logbook entry and all its attachments. This action cannot be undone.")
         }
-        .photosPicker(isPresented: $showingImagePicker, selection: $selectedPhotoItems, maxSelectionCount: 10, matching: .images)
-        .onChange(of: selectedPhotoItems) {
-            Task {
-                await uploadSelectedPhotos()
-            }
+        .sheet(isPresented: $showingCamera) {
+            LogbookCameraView(onImageCaptured: { image in
+                Task {
+                    if let data = image.jpegData(compressionQuality: 0.8) {
+                        await uploadAttachment(data: data, fileName: "photo.jpg", mimeType: "image/jpeg")
+                    }
+                }
+            })
+        }
+        .sheet(isPresented: $showingImagePicker) {
+            LogbookPhotoLibraryPickerForDetail(entryId: entry.id, onUpdate: {
+                Task {
+                    await viewModel.loadEntry(id: entry.id)
+                    onUpdate()
+                }
+            })
         }
         .sheet(isPresented: $showingDocumentPicker) {
             DocumentPicker { urls in
@@ -100,6 +116,19 @@ struct LogbookEntryDetailView: View {
                 }
             }
         }
+        .fullScreenCover(item: Binding(
+            get: { selectedPhotoUrl.map { PhotoURL(url: $0) } },
+            set: { selectedPhotoUrl = $0?.url }
+        )) { photoURL in
+            FullScreenPhotoView(photoUrl: photoURL.url, onDismiss: {
+                selectedPhotoUrl = nil
+            })
+        }
+    }
+
+    struct PhotoURL: Identifiable {
+        let id = UUID()
+        let url: String
     }
 
     private func header(_ entryDetail: LogbookEntryDetail) -> some View {
@@ -172,8 +201,11 @@ struct LogbookEntryDetailView: View {
                     .font(.headline)
                 Spacer()
                 Menu {
+                    Button(action: { showingCamera = true }) {
+                        Label("Take Photo", systemImage: "camera")
+                    }
                     Button(action: { showingImagePicker = true }) {
-                        Label("Add Photos", systemImage: "photo")
+                        Label("Choose Photos", systemImage: "photo")
                     }
                     Button(action: { showingDocumentPicker = true }) {
                         Label("Add Document", systemImage: "doc")
@@ -191,12 +223,69 @@ struct LogbookEntryDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding()
             } else {
-                ForEach(entryDetail.attachments) { attachment in
-                    AttachmentRow(attachment: attachment, onDelete: {
-                        Task {
-                            await deleteAttachment(attachment.id)
+                // Separate photos and documents
+                let photos = entryDetail.attachments.filter { $0.fileType?.starts(with: "image/") ?? false }
+                let documents = entryDetail.attachments.filter { !($0.fileType?.starts(with: "image/") ?? false) }
+
+                // Display photos in horizontal scroll
+                if !photos.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Photos")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(photos) { attachment in
+                                    AsyncImage(url: URL(string: "http://192.168.68.6:3000\(attachment.filePath)")) { phase in
+                                        switch phase {
+                                        case .empty:
+                                            ProgressView()
+                                                .frame(width: 150, height: 150)
+                                        case .success(let image):
+                                            image
+                                                .resizable()
+                                                .scaledToFill()
+                                                .frame(width: 150, height: 150)
+                                                .clipped()
+                                                .cornerRadius(8)
+                                                .onTapGesture {
+                                                    selectedPhotoUrl = "http://192.168.68.6:3000\(attachment.filePath)"
+                                                }
+                                        case .failure:
+                                            VStack {
+                                                Image(systemName: "photo")
+                                                    .font(.largeTitle)
+                                                Text("Failed to load")
+                                                    .font(.caption)
+                                            }
+                                            .frame(width: 150, height: 150)
+                                            .background(Color.gray.opacity(0.2))
+                                            .cornerRadius(8)
+                                        @unknown default:
+                                            EmptyView()
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
                         }
-                    })
+                    }
+                }
+
+                // Display documents as list
+                if !documents.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Documents")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        ForEach(documents) { attachment in
+                            AttachmentRow(attachment: attachment, onDelete: {
+                                Task {
+                                    await deleteAttachment(attachment.id)
+                                }
+                            })
+                        }
+                    }
                 }
             }
         }
@@ -220,15 +309,6 @@ struct LogbookEntryDetailView: View {
         } catch {
             viewModel.errorMessage = "Failed to delete attachment: \(error.localizedDescription)"
         }
-    }
-
-    private func uploadSelectedPhotos() async {
-        for item in selectedPhotoItems {
-            if let data = try? await item.loadTransferable(type: Data.self) {
-                await uploadAttachment(data: data, fileName: "photo.jpg", mimeType: "image/jpeg")
-            }
-        }
-        selectedPhotoItems = []
     }
 
     private func uploadDocuments(_ urls: [URL]) async {
@@ -338,45 +418,66 @@ class LogbookEntryDetailViewModel: ObservableObject {
     }
 }
 
-// MARK: - Document Picker
+// MARK: - Photo Library Picker for Detail View
 
-struct DocumentPicker: UIViewControllerRepresentable {
-    let onPick: ([URL]) -> Void
+struct LogbookPhotoLibraryPickerForDetail: View {
+    let entryId: Int
+    let onUpdate: () -> Void
 
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
-        picker.allowsMultipleSelection = true
-        picker.delegate = context.coordinator
-        return picker
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedImages: [UIImage] = []
+    @State private var isUploading = false
+
+    var body: some View {
+        NavigationView {
+            VStack {
+                if isUploading {
+                    ProgressView("Uploading photos...")
+                        .padding()
+                } else {
+                    LogbookPhotoLibraryPicker(images: $selectedImages)
+                }
+            }
+            .navigationTitle("Select Photos")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        Task {
+                            await uploadPhotos()
+                        }
+                    }
+                    .disabled(selectedImages.isEmpty || isUploading)
+                }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
     }
 
-    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+    private func uploadPhotos() async {
+        isUploading = true
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onPick: onPick)
-    }
-
-    class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let onPick: ([URL]) -> Void
-
-        init(onPick: @escaping ([URL]) -> Void) {
-            self.onPick = onPick
+        for (index, image) in selectedImages.enumerated() {
+            if let data = image.jpegData(compressionQuality: 0.8) {
+                do {
+                    _ = try await APIService.shared.uploadLogbookAttachment(
+                        entryId: entryId,
+                        fileData: data,
+                        fileName: "photo_\(index + 1).jpg",
+                        mimeType: "image/jpeg"
+                    )
+                } catch {
+                    print("Failed to upload photo: \(error)")
+                }
+            }
         }
 
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            onPick(urls)
-        }
-    }
-}
-
-// MARK: - Extensions
-
-extension URL {
-    func mimeType() -> String {
-        if let typeID = try? resourceValues(forKeys: [.typeIdentifierKey]).typeIdentifier,
-           let utType = UTType(typeID) {
-            return utType.preferredMIMEType ?? "application/octet-stream"
-        }
-        return "application/octet-stream"
+        isUploading = false
+        onUpdate()
+        dismiss()
     }
 }
