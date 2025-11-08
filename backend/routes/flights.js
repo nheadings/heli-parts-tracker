@@ -151,8 +151,12 @@ router.put('/flights/:flightId', async (req, res) => {
     notes
   } = req.body;
 
+  const client = await pool.connect();
+
   try {
-    const result = await pool.query(
+    await client.query('BEGIN');
+
+    const result = await client.query(
       `UPDATE flights
        SET hobbs_start = $1, hobbs_end = $2, departure_time = $3, arrival_time = $4,
            hobbs_photo_url = $5, ocr_confidence = $6, notes = $7
@@ -163,13 +167,30 @@ router.put('/flights/:flightId', async (req, res) => {
     );
 
     if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Flight not found' });
     }
 
-    res.json(result.rows[0]);
+    const flight = result.rows[0];
+
+    // Update helicopter current hours if hobbs_end changed
+    if (hobbs_end) {
+      await client.query(
+        `UPDATE helicopters
+         SET current_hours = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [hobbs_end, flight.helicopter_id]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json(flight);
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Update flight error:', error);
     res.status(500).json({ error: 'Failed to update flight' });
+  } finally {
+    client.release();
   }
 });
 

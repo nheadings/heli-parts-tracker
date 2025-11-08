@@ -122,9 +122,13 @@ struct EditLogbookCategoryView: View {
     @State private var displayInFlightView = false
     @State private var intervalHours = ""
     @State private var thresholdWarning = 25
+    @State private var selectedHelicopterIds: Set<Int> = []
+    @State private var showingHelicopterPicker = false
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var showingIconPicker = false
+
+    @EnvironmentObject var helicoptersViewModel: HelicoptersViewModel
 
     init(category: LogbookCategory? = nil, onSave: @escaping () -> Void) {
         self.category = category
@@ -174,6 +178,26 @@ struct EditLogbookCategoryView: View {
                         }
 
                         Stepper("Warning Threshold: \(thresholdWarning) hrs", value: $thresholdWarning, in: 1...100)
+
+                        Button(action: { showingHelicopterPicker = true }) {
+                            HStack {
+                                Text("Assign to Aircraft")
+                                Spacer()
+                                if selectedHelicopterIds.isEmpty {
+                                    Text("None")
+                                        .foregroundColor(.red)
+                                } else if selectedHelicopterIds.count == helicoptersViewModel.helicopters.count {
+                                    Text("All")
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Text("\(selectedHelicopterIds.count) selected")
+                                        .foregroundColor(.secondary)
+                                }
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
                 }
 
@@ -199,7 +223,7 @@ struct EditLogbookCategoryView: View {
                             await save()
                         }
                     }
-                    .disabled(isSaving || name.isEmpty)
+                    .disabled(isSaving || name.isEmpty || (displayInFlightView && intervalHours.isEmpty) || (displayInFlightView && selectedHelicopterIds.isEmpty))
                 }
             }
         }
@@ -208,6 +232,60 @@ struct EditLogbookCategoryView: View {
         }
         .sheet(isPresented: $showingIconPicker) {
             IconPickerView(selectedIcon: $selectedIcon)
+        }
+        .sheet(isPresented: $showingHelicopterPicker) {
+            NavigationView {
+                Form {
+                    Section("Select Aircraft for This Banner") {
+                        Toggle("All Aircraft", isOn: Binding(
+                            get: {
+                                // All is ON only if all helicopters are selected
+                                selectedHelicopterIds.count == helicoptersViewModel.helicopters.count
+                            },
+                            set: { isOn in
+                                if isOn {
+                                    // Turn on all
+                                    selectedHelicopterIds = Set(helicoptersViewModel.helicopters.map { $0.id })
+                                } else {
+                                    // Turn off all
+                                    selectedHelicopterIds = []
+                                }
+                            }
+                        ))
+                        .onChange(of: selectedHelicopterIds) {
+                            // If user selected all manually, check "All Aircraft" too
+                            if selectedHelicopterIds.count == helicoptersViewModel.helicopters.count && !selectedHelicopterIds.isEmpty {
+                                // Already all selected, toggle is synced
+                            }
+                        }
+
+                        ForEach(helicoptersViewModel.helicopters) { heli in
+                            Toggle(heli.tailNumber, isOn: Binding(
+                                get: { selectedHelicopterIds.contains(heli.id) },
+                                set: { isOn in
+                                    if isOn {
+                                        selectedHelicopterIds.insert(heli.id)
+                                    } else {
+                                        selectedHelicopterIds.remove(heli.id)
+                                    }
+                                }
+                            ))
+                        }
+                    }
+                }
+                .navigationTitle("Select Aircraft")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Done") {
+                            showingHelicopterPicker = false
+                        }
+                    }
+                }
+                .task {
+                    await helicoptersViewModel.loadHelicopters()
+                }
+            }
         }
     }
 
@@ -238,8 +316,9 @@ struct EditLogbookCategoryView: View {
         )
 
         do {
+            let savedCategory: LogbookCategory
             if let existing = category {
-                _ = try await APIService.shared.updateLogbookCategory(
+                savedCategory = try await APIService.shared.updateLogbookCategory(
                     id: existing.id,
                     category: categoryCreate,
                     isActive: isActive,
@@ -248,7 +327,12 @@ struct EditLogbookCategoryView: View {
                     thresholdWarning: displayInFlightView ? thresholdWarning : nil
                 )
             } else {
-                _ = try await APIService.shared.createLogbookCategory(category: categoryCreate)
+                savedCategory = try await APIService.shared.createLogbookCategory(category: categoryCreate)
+            }
+
+            // Save helicopter assignments if banner is enabled
+            if displayInFlightView {
+                try await saveHelicopterAssignments(categoryId: savedCategory.id)
             }
 
             onSave()
@@ -258,6 +342,35 @@ struct EditLogbookCategoryView: View {
         }
 
         isSaving = false
+    }
+
+    private func saveHelicopterAssignments(categoryId: Int) async throws {
+        struct UpdateBody: Codable {
+            let helicopter_ids: [Int]
+        }
+
+        // If all selected or none selected, send empty array (show to all)
+        let allHelicopterIds = Set(helicoptersViewModel.helicopters.map { $0.id })
+        let helicopterIdsArray: [Int]
+
+        if selectedHelicopterIds.isEmpty || selectedHelicopterIds == allHelicopterIds {
+            helicopterIdsArray = []
+        } else {
+            helicopterIdsArray = Array(selectedHelicopterIds)
+        }
+
+        let body = UpdateBody(helicopter_ids: helicopterIdsArray)
+        let url = URL(string: "http://192.168.68.6:3000/api/unified-logbook/categories/\(categoryId)/helicopters")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        if let token = UserDefaults.standard.string(forKey: "authToken") {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        request.httpBody = try JSONEncoder().encode(body)
+        let (_, _) = try await URLSession.shared.data(for: request)
     }
 }
 

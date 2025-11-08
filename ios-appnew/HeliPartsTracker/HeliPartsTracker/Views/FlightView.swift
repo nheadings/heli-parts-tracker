@@ -127,6 +127,8 @@ struct FlightView: View {
                             Task {
                                 // Reload helicopter hours first to ensure accurate calculations
                                 await helicoptersViewModel.loadHelicopters()
+                                // Small delay to ensure data is fully propagated
+                                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
                                 // Then reload maintenance status with updated hours
                                 await viewModel.loadMaintenanceStatus(helicopterId: helicopterId)
                                 // Finally reload flights to show updated flight list

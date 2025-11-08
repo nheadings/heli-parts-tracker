@@ -28,6 +28,27 @@ struct LogbookCategory: Codable, Identifiable, Hashable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        icon = try container.decode(String.self, forKey: .icon)
+        color = try container.decode(String.self, forKey: .color)
+        displayOrder = try container.decode(Int.self, forKey: .displayOrder)
+        isActive = try container.decode(Bool.self, forKey: .isActive)
+        displayInFlightView = try? container.decodeIfPresent(Bool.self, forKey: .displayInFlightView)
+        thresholdWarning = try? container.decodeIfPresent(Int.self, forKey: .thresholdWarning)
+        createdAt = try? container.decodeIfPresent(String.self, forKey: .createdAt)
+        updatedAt = try? container.decodeIfPresent(String.self, forKey: .updatedAt)
+
+        // Handle intervalHours as string or double
+        if let hoursString = try? container.decodeIfPresent(String.self, forKey: .intervalHours) {
+            intervalHours = Double(hoursString)
+        } else {
+            intervalHours = try? container.decodeIfPresent(Double.self, forKey: .intervalHours)
+        }
+    }
 }
 
 struct LogbookCategoryCreate: Codable {

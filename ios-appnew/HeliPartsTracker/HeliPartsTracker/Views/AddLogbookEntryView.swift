@@ -311,7 +311,10 @@ struct AddLogbookEntryView: View {
                 }
             }
         }
-        .onAppear {
+        .task {
+            // Load categories first
+            await viewModel.loadCategories()
+            // Then load existing data which might reference a category
             loadExistingData()
         }
         .sheet(isPresented: $showingCategoryPicker) {

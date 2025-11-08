@@ -85,6 +85,8 @@ router.put('/categories/:id', async (req, res) => {
   } = req.body;
 
   try {
+    console.log('Updating category', id, 'with:', { name, icon, color, display_order, is_active, display_in_flight_view, interval_hours, threshold_warning });
+
     const result = await pool.query(
       `UPDATE logbook_categories
        SET name = $1, icon = $2, color = $3, display_order = $4, is_active = $5,
@@ -99,10 +101,73 @@ router.put('/categories/:id', async (req, res) => {
       return res.status(404).json({ error: 'Category not found' });
     }
 
+    console.log('Category updated successfully:', result.rows[0]);
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Update category error:', error);
-    res.status(500).json({ error: 'Failed to update category' });
+    console.error('Error details:', error.message);
+    res.status(500).json({ error: 'Failed to update category', details: error.message });
+  }
+});
+
+// Get helicopters assigned to category banner
+router.get('/categories/:categoryId/helicopters', async (req, res) => {
+  const { categoryId } = req.params;
+
+  try {
+    const result = await pool.query(
+      `SELECT h.id, h.tail_number
+       FROM helicopter_category_banners hcb
+       JOIN helicopters h ON hcb.helicopter_id = h.id
+       WHERE hcb.category_id = $1 AND hcb.is_enabled = true
+       ORDER BY h.tail_number`,
+      [categoryId]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get category helicopters error:', error);
+    res.status(500).json({ error: 'Failed to fetch category helicopters' });
+  }
+});
+
+// Update helicopter assignments for category banner
+router.put('/categories/:categoryId/helicopters', async (req, res) => {
+  const { categoryId } = req.params;
+  const { helicopter_ids } = req.body;
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Delete all existing assignments
+    await client.query(
+      'DELETE FROM helicopter_category_banners WHERE category_id = $1',
+      [categoryId]
+    );
+
+    // Insert new assignments if any
+    if (helicopter_ids && helicopter_ids.length > 0) {
+      const values = helicopter_ids.map((heliId, index) =>
+        `($1, $${index + 2}, true)`
+      ).join(', ');
+
+      await client.query(
+        `INSERT INTO helicopter_category_banners (category_id, helicopter_id, is_enabled)
+         VALUES ${values}`,
+        [categoryId, ...helicopter_ids]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: 'Category helicopter assignments updated successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Update category helicopters error:', error);
+    res.status(500).json({ error: 'Failed to update category helicopters' });
+  } finally {
+    client.release();
   }
 });
 

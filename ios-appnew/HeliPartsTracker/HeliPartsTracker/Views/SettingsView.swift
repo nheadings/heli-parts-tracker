@@ -49,7 +49,7 @@ struct SettingsView: View {
                 }
 
                 Section(header: Text("Logbook")) {
-                    NavigationLink(destination: LogbookCategoriesView()) {
+                    NavigationLink(destination: LogbookCategoriesView().environmentObject(HelicoptersViewModel())) {
                         HStack {
                             Image(systemName: "folder.fill")
                                 .foregroundColor(.green)
