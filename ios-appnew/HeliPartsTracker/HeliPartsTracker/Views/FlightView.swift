@@ -138,10 +138,11 @@ struct FlightView: View {
             }
             .sheet(item: $selectedMaintenanceItem) { item in
                 if let helicopter = selectedHelicopter {
-                    AddMaintenanceCompletionView(
-                        helicopter: helicopter,
-                        maintenanceItem: item,
-                        onComplete: {
+                    AddLogbookEntryView(
+                        defaultHelicopterId: helicopter.id,
+                        defaultCategoryId: item.logbookCategoryId,
+                        defaultDescription: "\(item.title) completed",
+                        onSave: {
                             Task {
                                 // Reload helicopter hours first to ensure accurate calculations
                                 await helicoptersViewModel.loadHelicopters()
@@ -152,6 +153,8 @@ struct FlightView: View {
                             }
                         }
                     )
+                    .environmentObject(helicoptersViewModel)
+                    .environmentObject(UnifiedLogbookViewModel())
                 }
             }
         }

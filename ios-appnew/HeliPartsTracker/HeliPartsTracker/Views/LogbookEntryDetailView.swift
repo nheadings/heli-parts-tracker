@@ -72,12 +72,18 @@ struct LogbookEntryDetailView: View {
         }
         .sheet(isPresented: $showingEdit) {
             if let entryDetail = viewModel.entryDetail {
-                AddLogbookEntryView(existingEntry: entryDetail, defaultHelicopterId: nil, onSave: {
-                    Task {
-                        await viewModel.loadEntry(id: entry.id)
-                        onUpdate()
+                AddLogbookEntryView(
+                    existingEntry: entryDetail,
+                    defaultHelicopterId: nil,
+                    defaultCategoryId: nil,
+                    defaultDescription: nil,
+                    onSave: {
+                        Task {
+                            await viewModel.loadEntry(id: entry.id)
+                            onUpdate()
+                        }
                     }
-                })
+                )
                 .environmentObject(helicoptersViewModel)
                 .environmentObject(logbookViewModel)
             }

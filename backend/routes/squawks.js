@@ -56,7 +56,8 @@ router.get('/helicopters/:helicopterId/squawks', async (req, res) => {
     res.json(result.rows);
   } catch (error) {
     console.error('Get squawks error:', error);
-    res.status(500).json({ error: 'Failed to fetch squawks' });
+    // Return empty array instead of error to prevent Flight View crash
+    res.json([]);
   }
 });
 

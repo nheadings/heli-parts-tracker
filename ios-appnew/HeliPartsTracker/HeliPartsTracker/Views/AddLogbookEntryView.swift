@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 struct AddLogbookEntryView: View {
     let existingEntry: LogbookEntryDetail?
     let defaultHelicopterId: Int?
+    let defaultCategoryId: Int?
+    let defaultDescription: String?
     let onSave: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -22,6 +24,15 @@ struct AddLogbookEntryView: View {
     @State private var nextDueDate: Date? = nil
     @State private var includeNextDueDate = false
 
+    // Squawk-specific fields
+    @State private var severity = "routine"
+    @State private var status = "open"
+
+    // Fluid-specific fields
+    @State private var fluidType = "oil"
+    @State private var quantity = ""
+    @State private var unit = "quarts"
+
     @State private var selectedPhotos: [UIImage] = []
     @State private var selectedDocuments: [URL] = []
     @State private var existingAttachments: [LogbookAttachment] = []
@@ -35,9 +46,11 @@ struct AddLogbookEntryView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
 
-    init(existingEntry: LogbookEntryDetail? = nil, defaultHelicopterId: Int? = nil, onSave: @escaping () -> Void) {
+    init(existingEntry: LogbookEntryDetail? = nil, defaultHelicopterId: Int? = nil, defaultCategoryId: Int? = nil, defaultDescription: String? = nil, onSave: @escaping () -> Void) {
         self.existingEntry = existingEntry
         self.defaultHelicopterId = defaultHelicopterId
+        self.defaultCategoryId = defaultCategoryId
+        self.defaultDescription = defaultDescription
         self.onSave = onSave
     }
 
@@ -89,6 +102,52 @@ struct AddLogbookEntryView: View {
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 100)
+                    }
+                }
+
+                // Squawk-specific fields
+                if isSquawkCategory {
+                    Section("Squawk Details") {
+                        Picker("Severity", selection: $severity) {
+                            Text("Routine").tag("routine")
+                            Text("Caution").tag("caution")
+                            Text("Urgent").tag("urgent")
+                        }
+                        .pickerStyle(.segmented)
+
+                        Picker("Status", selection: $status) {
+                            Text("Open").tag("open")
+                            Text("In Progress").tag("in_progress")
+                            Text("Fixed").tag("fixed")
+                            Text("Deferred").tag("deferred")
+                        }
+                    }
+                }
+
+                // Fluid-specific fields
+                if isFluidCategory {
+                    Section("Fluid Details") {
+                        Picker("Fluid Type", selection: $fluidType) {
+                            Text("Oil").tag("oil")
+                            Text("Hydraulic").tag("hydraulic")
+                            Text("Fuel").tag("fuel")
+                            Text("Coolant").tag("coolant")
+                        }
+
+                        HStack {
+                            Text("Quantity")
+                            Spacer()
+                            TextField("", text: $quantity)
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 80)
+                        }
+
+                        Picker("Unit", selection: $unit) {
+                            Text("Quarts").tag("quarts")
+                            Text("Liters").tag("liters")
+                            Text("Gallons").tag("gallons")
+                        }
                     }
                 }
 
@@ -340,6 +399,15 @@ struct AddLogbookEntryView: View {
         !description.isEmpty && selectedHelicopterId > 0 && selectedCategoryId > 0
     }
 
+    private var isSquawkCategory: Bool {
+        viewModel.categories.first(where: { $0.id == selectedCategoryId })?.name.lowercased().contains("squawk") ?? false
+    }
+
+    private var isFluidCategory: Bool {
+        let categoryName = viewModel.categories.first(where: { $0.id == selectedCategoryId })?.name.lowercased() ?? ""
+        return categoryName.contains("fluid") || categoryName.contains("oil")
+    }
+
     private func removePhoto(at index: Int) {
         selectedPhotos.remove(at: index)
     }
@@ -415,8 +483,16 @@ struct AddLogbookEntryView: View {
                 }
             }
 
-            if let firstCategory = viewModel.categories.first {
+            // Use default category ID if provided, otherwise use first category
+            if let defaultCat = defaultCategoryId {
+                selectedCategoryId = defaultCat
+            } else if let firstCategory = viewModel.categories.first {
                 selectedCategoryId = firstCategory.id
+            }
+
+            // Use default description if provided
+            if let defaultDesc = defaultDescription {
+                description = defaultDesc
             }
         }
     }
@@ -438,7 +514,15 @@ struct AddLogbookEntryView: View {
             notes: notes.isEmpty ? nil : notes,
             cost: cost.isEmpty ? nil : Double(cost),
             nextDueHours: nextDueHours.isEmpty ? nil : Double(nextDueHours),
-            nextDueDate: includeNextDueDate && nextDueDate != nil ? dateFormatter.string(from: nextDueDate!) : nil
+            nextDueDate: includeNextDueDate && nextDueDate != nil ? dateFormatter.string(from: nextDueDate!) : nil,
+            severity: isSquawkCategory ? severity : nil,
+            status: isSquawkCategory ? status : nil,
+            fluidType: isFluidCategory ? fluidType : nil,
+            quantity: isFluidCategory && !quantity.isEmpty ? Double(quantity) : nil,
+            unit: isFluidCategory ? unit : nil,
+            fixedBy: nil,
+            fixedAt: nil,
+            fixNotes: nil
         )
 
         do {

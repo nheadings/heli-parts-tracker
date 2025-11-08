@@ -428,15 +428,18 @@ class APIService {
         try await performRequest(endpoint: "/unified-logbook/categories", method: "POST", body: category)
     }
 
-    func updateLogbookCategory(id: Int, category: LogbookCategoryCreate, isActive: Bool) async throws -> LogbookCategory {
+    func updateLogbookCategory(id: Int, category: LogbookCategoryCreate, isActive: Bool, displayInFlightView: Bool, intervalHours: Double?, thresholdWarning: Int?) async throws -> LogbookCategory {
         struct UpdateBody: Codable {
             let name: String
             let icon: String
             let color: String
             let display_order: Int
             let is_active: Bool
+            let display_in_flight_view: Bool
+            let interval_hours: Double?
+            let threshold_warning: Int?
         }
-        let body = UpdateBody(name: category.name, icon: category.icon, color: category.color, display_order: category.displayOrder, is_active: isActive)
+        let body = UpdateBody(name: category.name, icon: category.icon, color: category.color, display_order: category.displayOrder, is_active: isActive, display_in_flight_view: displayInFlightView, interval_hours: intervalHours, threshold_warning: thresholdWarning)
         return try await performRequest(endpoint: "/unified-logbook/categories/\(id)", method: "PUT", body: body)
     }
 

@@ -98,7 +98,10 @@ struct LogbookCategoriesView: View {
                 _ = try? await APIService.shared.updateLogbookCategory(
                     id: category.id,
                     category: categoryCreate,
-                    isActive: category.isActive
+                    isActive: category.isActive,
+                    displayInFlightView: category.displayInFlightView ?? false,
+                    intervalHours: category.intervalHours,
+                    thresholdWarning: category.thresholdWarning
                 )
             }
             await viewModel.loadCategories()
@@ -116,6 +119,9 @@ struct EditLogbookCategoryView: View {
     @State private var selectedColor = Color.blue
     @State private var displayOrder = 0
     @State private var isActive = true
+    @State private var displayInFlightView = false
+    @State private var intervalHours = ""
+    @State private var thresholdWarning = 25
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var showingIconPicker = false
@@ -152,6 +158,23 @@ struct EditLogbookCategoryView: View {
 
                 Section {
                     Toggle("Active", isOn: $isActive)
+                }
+
+                Section("Flight View Banner") {
+                    Toggle("Show as Banner", isOn: $displayInFlightView)
+
+                    if displayInFlightView {
+                        HStack {
+                            Text("Interval Hours")
+                            Spacer()
+                            TextField("", text: $intervalHours)
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 100)
+                        }
+
+                        Stepper("Warning Threshold: \(thresholdWarning) hrs", value: $thresholdWarning, in: 1...100)
+                    }
                 }
 
                 if let error = errorMessage {
@@ -195,6 +218,11 @@ struct EditLogbookCategoryView: View {
             selectedColor = Color(hex: category.color)
             displayOrder = category.displayOrder
             isActive = category.isActive
+            displayInFlightView = category.displayInFlightView ?? false
+            if let hours = category.intervalHours {
+                intervalHours = String(format: "%.1f", hours)
+            }
+            thresholdWarning = category.thresholdWarning ?? 25
         }
     }
 
@@ -214,7 +242,10 @@ struct EditLogbookCategoryView: View {
                 _ = try await APIService.shared.updateLogbookCategory(
                     id: existing.id,
                     category: categoryCreate,
-                    isActive: isActive
+                    isActive: isActive,
+                    displayInFlightView: displayInFlightView,
+                    intervalHours: intervalHours.isEmpty ? nil : Double(intervalHours),
+                    thresholdWarning: displayInFlightView ? thresholdWarning : nil
                 )
             } else {
                 _ = try await APIService.shared.createLogbookCategory(category: categoryCreate)

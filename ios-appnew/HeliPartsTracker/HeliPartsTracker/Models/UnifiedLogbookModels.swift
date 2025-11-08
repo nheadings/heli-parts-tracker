@@ -9,6 +9,9 @@ struct LogbookCategory: Codable, Identifiable, Hashable {
     let color: String
     let displayOrder: Int
     let isActive: Bool
+    let displayInFlightView: Bool?
+    let intervalHours: Double?
+    let thresholdWarning: Int?
     let createdAt: String?
     let updatedAt: String?
 
@@ -19,6 +22,9 @@ struct LogbookCategory: Codable, Identifiable, Hashable {
         case color
         case displayOrder = "display_order"
         case isActive = "is_active"
+        case displayInFlightView = "display_in_flight_view"
+        case intervalHours = "interval_hours"
+        case thresholdWarning = "threshold_warning"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -53,6 +59,16 @@ struct LogbookEntry: Codable, Identifiable {
     let nextDueHours: Double?
     let nextDueDate: String?
 
+    // Specialized fields
+    let severity: String?
+    let status: String?
+    let fluidType: String?
+    let quantity: Double?
+    let unit: String?
+    let fixedBy: Int?
+    let fixedAt: String?
+    let fixNotes: String?
+
     // Reference IDs
     let flightId: Int?
     let maintenanceLogId: Int?
@@ -85,6 +101,14 @@ struct LogbookEntry: Codable, Identifiable {
         case cost
         case nextDueHours = "next_due_hours"
         case nextDueDate = "next_due_date"
+        case severity
+        case status
+        case fluidType = "fluid_type"
+        case quantity
+        case unit
+        case fixedBy = "fixed_by"
+        case fixedAt = "fixed_at"
+        case fixNotes = "fix_notes"
         case flightId = "flight_id"
         case maintenanceLogId = "maintenance_log_id"
         case maintenanceCompletionId = "maintenance_completion_id"
@@ -129,6 +153,15 @@ struct LogbookEntry: Codable, Identifiable {
         createdAt = try? container.decodeIfPresent(String.self, forKey: .createdAt)
         updatedAt = try? container.decodeIfPresent(String.self, forKey: .updatedAt)
 
+        // Specialized fields
+        severity = try? container.decodeIfPresent(String.self, forKey: .severity)
+        status = try? container.decodeIfPresent(String.self, forKey: .status)
+        fluidType = try? container.decodeIfPresent(String.self, forKey: .fluidType)
+        unit = try? container.decodeIfPresent(String.self, forKey: .unit)
+        fixedBy = try? container.decodeIfPresent(Int.self, forKey: .fixedBy)
+        fixedAt = try? container.decodeIfPresent(String.self, forKey: .fixedAt)
+        fixNotes = try? container.decodeIfPresent(String.self, forKey: .fixNotes)
+
         // Handle numeric fields that may come as strings from PostgreSQL
         if let hoursString = try? container.decodeIfPresent(String.self, forKey: .hoursAtEvent) {
             hoursAtEvent = Double(hoursString)
@@ -147,6 +180,12 @@ struct LogbookEntry: Codable, Identifiable {
         } else {
             nextDueHours = try? container.decodeIfPresent(Double.self, forKey: .nextDueHours)
         }
+
+        if let qtyString = try? container.decodeIfPresent(String.self, forKey: .quantity) {
+            quantity = Double(qtyString)
+        } else {
+            quantity = try? container.decodeIfPresent(Double.self, forKey: .quantity)
+        }
     }
 }
 
@@ -162,6 +201,16 @@ struct LogbookEntryDetail: Codable, Identifiable {
     let cost: Double?
     let nextDueHours: Double?
     let nextDueDate: String?
+
+    // Specialized fields
+    let severity: String?
+    let status: String?
+    let fluidType: String?
+    let quantity: Double?
+    let unit: String?
+    let fixedBy: Int?
+    let fixedAt: String?
+    let fixNotes: String?
 
     // Joined fields
     let categoryName: String
@@ -186,6 +235,12 @@ struct LogbookEntryDetail: Codable, Identifiable {
         case cost
         case nextDueHours = "next_due_hours"
         case nextDueDate = "next_due_date"
+        case severity, status
+        case fluidType = "fluid_type"
+        case quantity, unit
+        case fixedBy = "fixed_by"
+        case fixedAt = "fixed_at"
+        case fixNotes = "fix_notes"
         case categoryName = "category_name"
         case categoryIcon = "category_icon"
         case categoryColor = "category_color"
@@ -214,6 +269,15 @@ struct LogbookEntryDetail: Codable, Identifiable {
         performedByName = try? container.decodeIfPresent(String.self, forKey: .performedByName)
         attachments = try container.decode([LogbookAttachment].self, forKey: .attachments)
 
+        // Specialized fields
+        severity = try? container.decodeIfPresent(String.self, forKey: .severity)
+        status = try? container.decodeIfPresent(String.self, forKey: .status)
+        fluidType = try? container.decodeIfPresent(String.self, forKey: .fluidType)
+        unit = try? container.decodeIfPresent(String.self, forKey: .unit)
+        fixedBy = try? container.decodeIfPresent(Int.self, forKey: .fixedBy)
+        fixedAt = try? container.decodeIfPresent(String.self, forKey: .fixedAt)
+        fixNotes = try? container.decodeIfPresent(String.self, forKey: .fixNotes)
+
         // Handle numeric fields that may come as strings from PostgreSQL
         if let hoursString = try? container.decodeIfPresent(String.self, forKey: .hoursAtEvent) {
             hoursAtEvent = Double(hoursString)
@@ -232,6 +296,12 @@ struct LogbookEntryDetail: Codable, Identifiable {
         } else {
             nextDueHours = try? container.decodeIfPresent(Double.self, forKey: .nextDueHours)
         }
+
+        if let qtyString = try? container.decodeIfPresent(String.self, forKey: .quantity) {
+            quantity = Double(qtyString)
+        } else {
+            quantity = try? container.decodeIfPresent(Double.self, forKey: .quantity)
+        }
     }
 }
 
@@ -246,6 +316,16 @@ struct LogbookEntryCreate: Codable {
     let nextDueHours: Double?
     let nextDueDate: String?
 
+    // Specialized fields
+    let severity: String?
+    let status: String?
+    let fluidType: String?
+    let quantity: Double?
+    let unit: String?
+    let fixedBy: Int?
+    let fixedAt: String?
+    let fixNotes: String?
+
     enum CodingKeys: String, CodingKey {
         case helicopterId = "helicopter_id"
         case categoryId = "category_id"
@@ -256,6 +336,12 @@ struct LogbookEntryCreate: Codable {
         case cost
         case nextDueHours = "next_due_hours"
         case nextDueDate = "next_due_date"
+        case severity, status
+        case fluidType = "fluid_type"
+        case quantity, unit
+        case fixedBy = "fixed_by"
+        case fixedAt = "fixed_at"
+        case fixNotes = "fix_notes"
     }
 }
 

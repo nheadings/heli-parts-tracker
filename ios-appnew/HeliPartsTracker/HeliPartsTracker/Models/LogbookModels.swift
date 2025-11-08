@@ -565,6 +565,7 @@ struct FlightViewMaintenance: Codable, Identifiable {
     let thresholdWarning: Int
     let nextDueHours: Double?
     let hoursRemaining: Double
+    let logbookCategoryId: Int?
 
     enum CodingKeys: String, CodingKey {
         case id, title, color
@@ -573,6 +574,7 @@ struct FlightViewMaintenance: Codable, Identifiable {
         case thresholdWarning = "threshold_warning"
         case nextDueHours = "next_due_hours"
         case hoursRemaining = "hours_remaining"
+        case logbookCategoryId = "logbook_category_id"
     }
 
     init(from decoder: Decoder) throws {
@@ -582,6 +584,7 @@ struct FlightViewMaintenance: Codable, Identifiable {
         color = try container.decode(String.self, forKey: .color)
         displayOrder = try container.decode(Int.self, forKey: .displayOrder)
         thresholdWarning = try container.decode(Int.self, forKey: .thresholdWarning)
+        logbookCategoryId = try? container.decodeIfPresent(Int.self, forKey: .logbookCategoryId)
 
         // Handle intervalHours as either String or Double
         if let hoursString = try? container.decode(String.self, forKey: .intervalHours) {

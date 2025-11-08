@@ -73,15 +73,26 @@ router.post('/categories', async (req, res) => {
 // Update category
 router.put('/categories/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, icon, color, display_order, is_active } = req.body;
+  const {
+    name,
+    icon,
+    color,
+    display_order,
+    is_active,
+    display_in_flight_view,
+    interval_hours,
+    threshold_warning
+  } = req.body;
 
   try {
     const result = await pool.query(
       `UPDATE logbook_categories
-       SET name = $1, icon = $2, color = $3, display_order = $4, is_active = $5
-       WHERE id = $6
+       SET name = $1, icon = $2, color = $3, display_order = $4, is_active = $5,
+           display_in_flight_view = $6, interval_hours = $7, threshold_warning = $8
+       WHERE id = $9
        RETURNING *`,
-      [name, icon, color, display_order, is_active, id]
+      [name, icon, color, display_order, is_active, display_in_flight_view || false,
+       interval_hours, threshold_warning, id]
     );
 
     if (result.rows.length === 0) {
@@ -261,7 +272,15 @@ router.post('/entries', async (req, res) => {
     notes,
     cost,
     next_due_hours,
-    next_due_date
+    next_due_date,
+    severity,
+    status,
+    fluid_type,
+    quantity,
+    unit,
+    fixed_by,
+    fixed_at,
+    fix_notes
   } = req.body;
   const userId = req.user.id;
 
@@ -269,11 +288,13 @@ router.post('/entries', async (req, res) => {
     const insertResult = await pool.query(
       `INSERT INTO logbook_entries
        (helicopter_id, category_id, event_date, hours_at_event, description, notes,
-        performed_by, cost, next_due_hours, next_due_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        performed_by, cost, next_due_hours, next_due_date, severity, status, fluid_type,
+        quantity, unit, fixed_by, fixed_at, fix_notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
        RETURNING id`,
       [helicopter_id, category_id, event_date || new Date(), hours_at_event, description,
-       notes, userId, cost, next_due_hours, next_due_date]
+       notes, userId, cost, next_due_hours, next_due_date, severity, status || 'completed',
+       fluid_type, quantity, unit, fixed_by, fixed_at, fix_notes]
     );
 
     // Fetch the complete entry with joined fields
@@ -317,18 +338,29 @@ router.put('/entries/:id', async (req, res) => {
     notes,
     cost,
     next_due_hours,
-    next_due_date
+    next_due_date,
+    severity,
+    status,
+    fluid_type,
+    quantity,
+    unit,
+    fixed_by,
+    fixed_at,
+    fix_notes
   } = req.body;
 
   try {
     const updateResult = await pool.query(
       `UPDATE logbook_entries
        SET category_id = $1, event_date = $2, hours_at_event = $3, description = $4,
-           notes = $5, cost = $6, next_due_hours = $7, next_due_date = $8
-       WHERE id = $9
+           notes = $5, cost = $6, next_due_hours = $7, next_due_date = $8,
+           severity = $9, status = $10, fluid_type = $11, quantity = $12, unit = $13,
+           fixed_by = $14, fixed_at = $15, fix_notes = $16
+       WHERE id = $17
        RETURNING id`,
       [category_id, event_date, hours_at_event, description, notes, cost,
-       next_due_hours, next_due_date, id]
+       next_due_hours, next_due_date, severity, status, fluid_type, quantity, unit,
+       fixed_by, fixed_at, fix_notes, id]
     );
 
     if (updateResult.rows.length === 0) {

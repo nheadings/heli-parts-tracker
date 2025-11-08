@@ -104,6 +104,8 @@ struct UnifiedLogbookView: View {
         .sheet(isPresented: $showingAddEntry) {
             AddLogbookEntryView(
                 defaultHelicopterId: selectedHelicopterId == "all" ? nil : Int(selectedHelicopterId),
+                defaultCategoryId: nil,
+                defaultDescription: nil,
                 onSave: {
                     Task {
                         await loadEntries()
