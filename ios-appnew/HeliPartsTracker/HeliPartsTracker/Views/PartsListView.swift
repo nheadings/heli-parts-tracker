@@ -7,38 +7,105 @@ struct PartsListView: View {
 
     var body: some View {
         NavigationView {
-            Group {
-                if viewModel.isLoading {
-                    ProgressView()
-                } else if let error = viewModel.errorMessage {
-                    Text(error)
-                        .foregroundColor(.red)
-                        .padding()
-                } else {
-                    List {
-                        ForEach(viewModel.filteredParts) { part in
-                            NavigationLink(destination: PartDetailView(part: part)) {
-                                PartRowView(part: part)
-                            }
+            VStack(spacing: 0) {
+                // Search hint banner
+                if !viewModel.searchHint.isEmpty {
+                    Text(viewModel.searchHint)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal)
+                        .frame(maxWidth: .infinity)
+                        .background(Color(.systemGroupedBackground))
+                }
+
+                // Content
+                Group {
+                    if viewModel.isLoading {
+                        ProgressView("Searching...")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if let error = viewModel.errorMessage {
+                        VStack(spacing: 12) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.system(size: 50))
+                                .foregroundColor(.red)
+                            Text(error)
+                                .foregroundColor(.red)
+                                .multilineTextAlignment(.center)
                         }
-                        .onDelete(perform: deleteParts)
+                        .padding()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if viewModel.filteredParts.isEmpty && viewModel.searchQuery.isEmpty {
+                        // Empty state - no search yet
+                        VStack(spacing: 16) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 60))
+                                .foregroundColor(.gray)
+                            Text("Search Parts Inventory")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                            Text("Type a part number or description to search")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                            Text("200,000+ parts available")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if viewModel.filteredParts.isEmpty && !viewModel.searchQuery.isEmpty {
+                        // No results for search
+                        VStack(spacing: 16) {
+                            Image(systemName: "questionmark.circle")
+                                .font(.system(size: 60))
+                                .foregroundColor(.gray)
+                            Text("No Results")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                            Text("No parts found for '\(viewModel.searchQuery)'")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        List {
+                            ForEach(viewModel.filteredParts) { part in
+                                NavigationLink(destination: PartDetailView(part: part)) {
+                                    PartRowView(part: part)
+                                }
+                            }
+                            .onDelete(perform: deleteParts)
+                        }
+                        .refreshable {
+                            await viewModel.refreshParts()
+                        }
                     }
-                    .searchable(text: $viewModel.searchQuery, prompt: "Search by part number or description")
                 }
             }
+            .searchable(text: $viewModel.searchQuery, prompt: "Search part number or description")
             .navigationTitle("Parts Inventory")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "line.3.horizontal.decrease.circle")
-                            .foregroundColor(.blue)
-                            .font(.system(size: 16))
-                        Picker("Filter", selection: $viewModel.lifeLimitedFilter) {
+                    Menu {
+                        Picker("Type", selection: $viewModel.lifeLimitedFilter) {
                             ForEach(PartsViewModel.LifeLimitedFilter.allCases, id: \.self) { filter in
                                 Text(filter.rawValue).tag(filter)
                             }
                         }
-                        .pickerStyle(.menu)
+
+                        Toggle("In Stock Only", isOn: $viewModel.inStockOnly)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                            if viewModel.lifeLimitedFilter != .all || viewModel.inStockOnly {
+                                Image(systemName: "circle.fill")
+                                    .font(.system(size: 6))
+                                    .foregroundColor(.blue)
+                            }
+                        }
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -52,26 +119,13 @@ struct PartsListView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingAddPart, onDismiss: {
-                Task {
-                    await viewModel.loadParts()
-                }
-            }) {
+            .sheet(isPresented: $showingAddPart) {
                 AddPartView()
                     .environmentObject(viewModel)
             }
-            .sheet(isPresented: $showingQRScanner, onDismiss: {
-                Task {
-                    await viewModel.loadParts()
-                }
-            }) {
+            .sheet(isPresented: $showingQRScanner) {
                 QRScannerView()
                     .environmentObject(viewModel)
-            }
-            .onAppear {
-                Task {
-                    await viewModel.loadParts()
-                }
             }
         }
     }

@@ -3,9 +3,11 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
     @StateObject private var locationManager = LocationManager.shared
+    @StateObject private var pdfCache = PDFCacheService.shared
     @State private var newLocation = ""
     @State private var showingAddLocation = false
     @State private var showingAddUser = false
+    @State private var showingManualURLs = false
     @State private var users: [User] = []
     @State private var isLoadingUsers = false
 
@@ -15,6 +17,10 @@ struct SettingsView: View {
     @State private var newEmail = ""
     @State private var newFullName = ""
     @State private var newUserRole = "user"
+
+    // Manual URL fields
+    @State private var r44IPCURL = ""
+    @State private var r44MMURL = ""
 
     var body: some View {
         NavigationView {
@@ -34,7 +40,35 @@ struct SettingsView: View {
 
                 Section("App Information") {
                     DetailRow(label: "Version", value: "1.0.0")
-                    DetailRow(label: "Server", value: "192.168.68.6:3000")
+                    DetailRow(label: "Server", value: "https://heli-api.headingshelicopters.org")
+                }
+
+                Section(header: Text("Robinson Manuals")) {
+                    NavigationLink(destination: ManualURLsSettingsView()) {
+                        HStack {
+                            Image(systemName: "link.circle.fill")
+                                .foregroundColor(.blue)
+                                .frame(width: 28)
+                            Text("Configure Manual URLs")
+                        }
+                    }
+
+                    NavigationLink(destination: ManualDownloadsView()) {
+                        HStack {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .foregroundColor(.green)
+                                .frame(width: 28)
+                            VStack(alignment: .leading) {
+                                Text("Download Manuals")
+                                if pdfCache.isCached(type: .r44IPC) {
+                                    let days = pdfCache.daysSinceDownload(type: .r44IPC) ?? 0
+                                    Text("Last updated \(days) day\(days == 1 ? "" : "s") ago")
+                                        .font(.caption)
+                                        .foregroundColor(days > 7 ? .orange : .secondary)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Section(header: Text("Maintenance")) {
@@ -244,3 +278,182 @@ struct SettingsView: View {
         newUserRole = "user"
     }
 }
+
+// MARK: - Manual URLs Configuration
+
+struct ManualURLsSettingsView: View {
+    @StateObject private var pdfCache = PDFCacheService.shared
+    @State private var r44IPCURL: String = ""
+    @State private var r44MMURL: String = ""
+    @State private var isSaving = false
+    @State private var showingSaveSuccess = false
+
+    var body: some View {
+        Form {
+            Section(header: Text("R44 Manuals"),
+                   footer: Text("Paste Robinson's PDF URLs here. All users will get these URLs.")) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("IPC URL")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("R44 IPC URL", text: $r44IPCURL, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                        .lineLimit(3...5)
+                        .autocapitalization(.none)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Maintenance Manual URL")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("R44 MM URL", text: $r44MMURL, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                        .lineLimit(3...5)
+                        .autocapitalization(.none)
+                }
+            }
+
+            Section {
+                Button(action: {
+                    Task {
+                        await saveURLs()
+                    }
+                }) {
+                    HStack {
+                        Spacer()
+                        if isSaving {
+                            ProgressView()
+                                .padding(.trailing, 8)
+                            Text("Saving...")
+                        } else {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Save to Database")
+                        }
+                        Spacer()
+                    }
+                }
+                .disabled(isSaving)
+
+                Button("Reset to Defaults") {
+                    r44IPCURL = PDFCacheService.PDFType.r44IPC.defaultURL
+                    r44MMURL = PDFCacheService.PDFType.r44MM.defaultURL
+                }
+            }
+        }
+        .navigationTitle("Manual URLs")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            r44IPCURL = await pdfCache.getConfiguredURL(type: .r44IPC)
+            r44MMURL = await pdfCache.getConfiguredURL(type: .r44MM)
+        }
+        .alert("Saved to Database", isPresented: $showingSaveSuccess) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Manual URLs have been saved to the backend database. All users will receive these URLs.")
+        }
+    }
+
+    private func saveURLs() async {
+        isSaving = true
+
+        do {
+            try await pdfCache.saveURL(type: .r44IPC, url: r44IPCURL)
+            try await pdfCache.saveURL(type: .r44MM, url: r44MMURL)
+            showingSaveSuccess = true
+        } catch {
+            print("Failed to save URLs: \(error)")
+        }
+
+        isSaving = false
+    }
+}
+
+// MARK: - Manual Downloads Manager
+
+struct ManualDownloadsView: View {
+    @StateObject private var pdfCache = PDFCacheService.shared
+    @State private var showingDeleteConfirm = false
+    @State private var pdfToDelete: PDFCacheService.PDFType?
+
+    var body: some View {
+        List {
+            Section(header: Text("R44 Manuals"),
+                   footer: Text("Downloaded manuals are stored on your device for offline access. Tap download to cache, or refresh to update.")) {
+                manualRow(type: .r44IPC)
+                manualRow(type: .r44MM)
+            }
+        }
+        .navigationTitle("Download Manuals")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("Delete Manual?", isPresented: $showingDeleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                if let type = pdfToDelete {
+                    try? pdfCache.deleteCachedPDF(type: type)
+                }
+            }
+        } message: {
+            if let type = pdfToDelete {
+                Text("This will delete the cached \(type.rawValue). You can re-download it anytime.")
+            }
+        }
+    }
+
+    private func manualRow(type: PDFCacheService.PDFType) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(type.rawValue)
+                    .font(.headline)
+
+                if pdfCache.isCached(type: type) {
+                    if let days = pdfCache.daysSinceDownload(type: type) {
+                        Text("Downloaded \(days) day\(days == 1 ? "" : "s") ago")
+                            .font(.caption)
+                            .foregroundColor(days > 7 ? .orange : .secondary)
+                        if days > 7 {
+                            Text("⚠️ Consider updating")
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                        }
+                    }
+                } else {
+                    Text("Not downloaded")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer()
+
+            if pdfCache.isCached(type: type) {
+                Button(action: {
+                    pdfToDelete = type
+                    showingDeleteConfirm = true
+                }) {
+                    Image(systemName: "trash")
+                        .foregroundColor(.red)
+                }
+                .buttonStyle(.borderless)
+            }
+
+            Button(action: {
+                Task {
+                    let url = await pdfCache.getConfiguredURL(type: type)
+                    try? await pdfCache.downloadPDF(type: type, fromURL: url)
+                }
+            }) {
+                if pdfCache.isDownloading {
+                    ProgressView()
+                } else {
+                    Image(systemName: pdfCache.isCached(type: type) ? "arrow.clockwise" : "arrow.down.circle.fill")
+                        .foregroundColor(.blue)
+                }
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+}
+

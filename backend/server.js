@@ -33,6 +33,7 @@ const squawksRoutes = require('./routes/squawks');
 const uploadsRoutes = require('./routes/uploads');
 const unifiedLogbookRoutes = require('./routes/unified-logbook');
 const adminRoutes = require('./routes/admin');
+const manualsRoutes = require('./routes/manuals');
 
 // API routes
 app.use('/api/auth', authRoutes);
@@ -46,6 +47,7 @@ app.use('/api/squawks', squawksRoutes);
 app.use('/api/uploads', uploadsRoutes);
 app.use('/api/unified-logbook', unifiedLogbookRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/manuals', manualsRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

@@ -92,3 +92,29 @@ struct PartCreate: Codable {
         case isLifeLimited = "is_life_limited"
     }
 }
+
+struct PartsSearchResponse: Codable {
+    let parts: [Part]?
+    let total: Int?
+    let limit: Int?
+    let offset: Int?
+    let hasMore: Bool?
+    let message: String?
+    let hint: String?
+
+    enum CodingKeys: String, CodingKey {
+        case parts, total, limit, offset, message, hint
+        case hasMore = "hasMore"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        parts = try? container.decodeIfPresent([Part].self, forKey: .parts)
+        total = try? container.decodeIfPresent(Int.self, forKey: .total)
+        limit = try? container.decodeIfPresent(Int.self, forKey: .limit)
+        offset = try? container.decodeIfPresent(Int.self, forKey: .offset)
+        hasMore = try? container.decodeIfPresent(Bool.self, forKey: .hasMore)
+        message = try? container.decodeIfPresent(String.self, forKey: .message)
+        hint = try? container.decodeIfPresent(String.self, forKey: .hint)
+    }
+}

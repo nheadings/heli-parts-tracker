@@ -5,11 +5,16 @@ struct PartDetailView: View {
     @Environment(\.openURL) var openURL
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var viewModel: PartsViewModel
+    @StateObject private var pdfCache = PDFCacheService.shared
     @State private var showingAddQuantity = false
     @State private var quantityToAdd = ""
     @State private var showingDeleteConfirmation = false
     @State private var showingEditPart = false
     @State private var showingInstallPart = false
+    @State private var showingPDFViewer = false
+    @State private var pdfURLToShow: URL?
+    @State private var pdfTypeToShow: PDFCacheService.PDFType?
+    @State private var pdfSearchTerm: String = ""
     @State private var transactions: [InventoryTransaction] = []
     @State private var isLoadingTransactions = false
 
@@ -50,6 +55,45 @@ struct PartDetailView: View {
             if let price = part.unitPrice {
                 Section("Pricing") {
                     DetailRow(label: "Unit Price", value: String(format: "$%.2f", price))
+                }
+            }
+
+            // Robinson Manuals Section
+            if part.category == "R44" {
+                Section("Robinson R44 Manuals") {
+                    Button(action: {
+                        openRobinsonIPC()
+                    }) {
+                        HStack {
+                            Image(systemName: "book.closed.fill")
+                                .foregroundColor(.blue)
+                            VStack(alignment: .leading) {
+                                Text("View in R44 IPC")
+                                Text("Opens PDF and searches for \(part.partNumber)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                        }
+                    }
+
+                    Button(action: {
+                        openRobinsonMM()
+                    }) {
+                        HStack {
+                            Image(systemName: "wrench.and.screwdriver.fill")
+                                .foregroundColor(.orange)
+                            VStack(alignment: .leading) {
+                                Text("View in R44 Maintenance Manual")
+                                Text("Opens PDF and searches for \(part.partNumber)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                        }
+                    }
                 }
             }
 
@@ -154,6 +198,11 @@ struct PartDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await loadTransactions()
+            // Preload both IPC and MM in background if they're cached
+            if part.category == "R44" {
+                pdfCache.preloadPDF(type: .r44IPC)
+                pdfCache.preloadPDF(type: .r44MM)
+            }
         }
         .sheet(isPresented: $showingAddQuantity) {
             NavigationView {
@@ -193,6 +242,15 @@ struct PartDetailView: View {
         }
         .sheet(isPresented: $showingInstallPart) {
             InstallPartOnHelicopterView(part: part)
+        }
+        .sheet(isPresented: $showingPDFViewer) {
+            if let pdfURL = pdfURLToShow {
+                PDFViewerWithSearch(
+                    pdfURL: pdfURL,
+                    initialSearchTerm: pdfSearchTerm,
+                    preloadedDocument: nil  // Don't use preloaded for now - testing
+                )
+            }
         }
         .alert("Delete Part", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -242,6 +300,48 @@ struct PartDetailView: View {
             }
         }
         return nil
+    }
+
+    private func openRobinsonIPC() {
+        Task {
+            await openManual(type: .r44IPC)
+        }
+    }
+
+    private func openRobinsonMM() {
+        Task {
+            await openManual(type: .r44MM)
+        }
+    }
+
+    private func openManual(type: PDFCacheService.PDFType) async {
+        // Check if PDF is cached
+        if let cachedURL = pdfCache.getCachedPDFURL(type: type) {
+            // Open cached PDF (preloaded document will be used if available)
+            pdfURLToShow = cachedURL
+            pdfTypeToShow = type
+            pdfSearchTerm = part.partNumber
+            showingPDFViewer = true
+        } else {
+            // Need to download first
+            pdfCache.errorMessage = "Downloading \(type.rawValue)... This may take a minute."
+
+            do {
+                let url = await pdfCache.getConfiguredURL(type: type)
+                let fileURL = try await pdfCache.downloadPDF(type: type, fromURL: url)
+
+                // Preload the document now that it's downloaded
+                pdfCache.preloadPDF(type: type)
+
+                // Open the downloaded PDF
+                pdfURLToShow = fileURL
+                pdfTypeToShow = type
+                pdfSearchTerm = part.partNumber
+                showingPDFViewer = true
+            } catch {
+                pdfCache.errorMessage = "Failed to download: \(error.localizedDescription)"
+            }
+        }
     }
 
     private func loadTransactions() async {
@@ -371,6 +471,334 @@ struct TransactionRowView: View {
             return displayFormatter.string(from: date)
         }
         return dateString
+    }
+}
+
+// MARK: - PDF Viewer with Search
+
+import PDFKit
+
+struct PDFViewerWithSearch: View {
+    let pdfURL: URL
+    let initialSearchTerm: String
+    let preloadedDocument: PDFDocument?
+    @Environment(\.dismiss) var dismiss
+    @State private var searchTerm: String = ""
+    @State private var isSearching = false
+    @State private var isLoadingPDF = true
+    @State private var resultCount = 0
+    @State private var currentResultIndex = 0
+    @State private var searchTrigger = UUID()
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                // Search Bar
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.secondary)
+                        TextField("Search in manual", text: $searchTerm)
+                            .textFieldStyle(.roundedBorder)
+                            .autocapitalization(.none)
+                            .onSubmit {
+                                searchTrigger = UUID()
+                            }
+
+                        if !searchTerm.isEmpty {
+                            Button(action: {
+                                searchTerm = ""
+                                resultCount = 0
+                                currentResultIndex = 0
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        Button(action: {
+                            searchTrigger = UUID()
+                        }) {
+                            Text("Search")
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                        }
+                        .disabled(searchTerm.isEmpty)
+                    }
+                    .padding(.horizontal)
+
+                    // Result navigation
+                    if resultCount > 0 && !isSearching {
+                        HStack {
+                            Text("\(currentResultIndex + 1) of \(resultCount)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Spacer()
+
+                            Button(action: {
+                                if currentResultIndex > 0 {
+                                    currentResultIndex -= 1
+                                }
+                            }) {
+                                Image(systemName: "chevron.up")
+                            }
+                            .disabled(currentResultIndex == 0)
+
+                            Button(action: {
+                                if currentResultIndex < resultCount - 1 {
+                                    currentResultIndex += 1
+                                }
+                            }) {
+                                Image(systemName: "chevron.down")
+                            }
+                            .disabled(currentResultIndex >= resultCount - 1)
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 4)
+                        .background(Color(.systemGroupedBackground))
+                    }
+                }
+                .padding(.vertical, 8)
+                .background(Color(.systemBackground))
+
+                Divider()
+
+                // PDF Viewer
+                ZStack {
+                    PDFViewerRepresentable(
+                        pdfURL: pdfURL,
+                        preloadedDocument: preloadedDocument,
+                        searchTerm: searchTerm,
+                        searchTrigger: searchTrigger,
+                        currentResultIndex: $currentResultIndex,
+                        isSearching: $isSearching,
+                        isLoadingPDF: $isLoadingPDF,
+                        resultCount: $resultCount
+                    )
+
+                    // Loading PDF overlay
+                    if isLoadingPDF {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                            Text("Loading manual...")
+                                .font(.headline)
+                        }
+                        .padding(30)
+                        .background(Color(.systemBackground).opacity(0.95))
+                        .cornerRadius(12)
+                        .shadow(radius: 10)
+                    }
+
+                    // Searching overlay
+                    if isSearching && !isLoadingPDF {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                            Text("Searching for '\(searchTerm)'...")
+                                .font(.headline)
+                            Text("Searching 1,000+ pages...")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(30)
+                        .background(Color(.systemBackground).opacity(0.95))
+                        .cornerRadius(12)
+                        .shadow(radius: 10)
+                    }
+                }
+            }
+            .navigationTitle("Manual")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .onAppear {
+            // Reset all state for fresh start
+            searchTerm = initialSearchTerm
+            resultCount = 0
+            currentResultIndex = 0
+            isSearching = false
+            isLoadingPDF = true
+
+            // Trigger search after a brief delay to ensure PDF is loaded
+            if !initialSearchTerm.isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    searchTrigger = UUID()
+                }
+            }
+        }
+        .onDisappear {
+            // Clean up state when dismissed
+            resultCount = 0
+            currentResultIndex = 0
+            isSearching = false
+        }
+    }
+}
+
+struct PDFViewerRepresentable: UIViewRepresentable {
+    let pdfURL: URL
+    let preloadedDocument: PDFDocument?
+    let searchTerm: String
+    let searchTrigger: UUID
+    @Binding var currentResultIndex: Int
+    @Binding var isSearching: Bool
+    @Binding var isLoadingPDF: Bool
+    @Binding var resultCount: Int
+
+    func makeUIView(context: Context) -> PDFView {
+        print("🆕 Creating new PDFView for: \(pdfURL.lastPathComponent)")
+
+        let pdfView = PDFView()
+        pdfView.autoScales = true
+        pdfView.displayMode = .singlePageContinuous
+        pdfView.displayDirection = .vertical
+
+        context.coordinator.pdfView = pdfView
+        context.coordinator.reset()  // Clear any old state
+
+        // Use preloaded document if available (instant!), otherwise load from disk
+        if let document = preloadedDocument {
+            print("✅ Using preloaded document: \(pdfURL.lastPathComponent), pages: \(document.pageCount)")
+            pdfView.document = document
+            context.coordinator.document = document
+            DispatchQueue.main.async {
+                isLoadingPDF = false
+            }
+        } else {
+            print("⏳ Loading document from disk: \(pdfURL.lastPathComponent)")
+            // Load in background
+            Task.detached(priority: .userInitiated) {
+                if let document = PDFDocument(url: pdfURL) {
+                    print("✅ Loaded document: \(pdfURL.lastPathComponent), pages: \(document.pageCount)")
+                    await MainActor.run {
+                        pdfView.document = document
+                        context.coordinator.document = document
+                        isLoadingPDF = false
+                    }
+                } else {
+                    print("❌ Failed to load document: \(pdfURL.lastPathComponent)")
+                    await MainActor.run {
+                        isLoadingPDF = false
+                    }
+                }
+            }
+        }
+
+        return pdfView
+    }
+
+    func updateUIView(_ pdfView: PDFView, context: Context) {
+        // Check if document changed (switching between IPC/MM)
+        if let currentDoc = pdfView.document,
+           context.coordinator.document !== currentDoc {
+            print("🔄 Document changed, resetting coordinator")
+            context.coordinator.reset()
+            context.coordinator.document = currentDoc
+        }
+
+        // Handle search trigger changes
+        if context.coordinator.lastSearchTrigger != searchTrigger && !searchTerm.isEmpty {
+            context.coordinator.lastSearchTrigger = searchTrigger
+            context.coordinator.performSearch(searchTerm: searchTerm)
+        }
+
+        // Handle result navigation
+        if context.coordinator.lastResultIndex != currentResultIndex {
+            context.coordinator.lastResultIndex = currentResultIndex
+            context.coordinator.goToResult(index: currentResultIndex)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            isSearching: $isSearching,
+            resultCount: $resultCount
+        )
+    }
+
+    class Coordinator {
+        var pdfView: PDFView?
+        var document: PDFDocument?
+        var searchSelections: [PDFSelection] = []
+        var lastSearchTrigger: UUID = UUID()
+        var lastResultIndex: Int = 0
+        @Binding var isSearching: Bool
+        @Binding var resultCount: Int
+
+        init(isSearching: Binding<Bool>, resultCount: Binding<Int>) {
+            _isSearching = isSearching
+            _resultCount = resultCount
+        }
+
+        func reset() {
+            searchSelections = []
+            lastSearchTrigger = UUID()
+            lastResultIndex = 0
+            document = nil
+            pdfView?.highlightedSelections = nil
+            pdfView?.clearSelection()
+        }
+
+        func performSearch(searchTerm: String) {
+            // Ensure we have the document reference
+            if document == nil {
+                document = pdfView?.document
+            }
+
+            guard let pdfView = pdfView, let document = document else {
+                print("❌ Cannot search - no document loaded")
+                return
+            }
+
+            print("🔍 Searching for: '\(searchTerm)' in document with \(document.pageCount) pages")
+
+            DispatchQueue.main.async {
+                self.isSearching = true
+            }
+
+            DispatchQueue.global(qos: .userInitiated).async {
+                let selections = document.findString(searchTerm, withOptions: .caseInsensitive)
+                print("📊 Found \(selections.count) results for '\(searchTerm)'")
+
+                DispatchQueue.main.async {
+                    self.searchSelections = selections
+                    self.resultCount = selections.count
+
+                    if !selections.isEmpty {
+                        pdfView.highlightedSelections = selections
+                        pdfView.go(to: selections[0])
+                        pdfView.setCurrentSelection(selections[0], animate: true)
+                        print("✅ Jumped to first result on page \(selections[0].pages[0].label ?? "?")")
+                    } else {
+                        print("⚠️ No results found")
+                    }
+
+                    self.isSearching = false
+                }
+            }
+        }
+
+        func goToResult(index: Int) {
+            guard let pdfView = pdfView, index < searchSelections.count else {
+                print("❌ Cannot navigate - index:\(index), selections:\(searchSelections.count)")
+                return
+            }
+            let selection = searchSelections[index]
+            print("➡️ Navigating to result \(index + 1) of \(searchSelections.count)")
+            pdfView.go(to: selection)
+            pdfView.setCurrentSelection(selection, animate: true)
+        }
     }
 }
 

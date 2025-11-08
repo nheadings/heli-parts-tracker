@@ -4,7 +4,7 @@ import UIKit
 class APIService {
     static let shared = APIService()
 
-    private let baseURL = "http://192.168.68.6:3000/api"
+    private let baseURL = "https://heli-api.headingshelicopters.org/api"
     private var authToken: String?
 
     private init() {
@@ -47,12 +47,32 @@ class APIService {
     // MARK: - Parts
 
     func getParts() async throws -> [Part] {
-        try await performRequest(endpoint: "/parts", method: "GET")
+        // Deprecated - returns empty array, use searchParts instead
+        let response: PartsSearchResponse = try await performRequest(endpoint: "/parts", method: "GET")
+        return response.parts ?? []
     }
 
-    func searchParts(query: String) async throws -> [Part] {
-        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        return try await performRequest(endpoint: "/parts/search?q=\(encodedQuery)", method: "GET")
+    func searchParts(query: String, inStock: Bool? = nil, lifeLimited: String? = nil, limit: Int = 100, offset: Int = 0) async throws -> PartsSearchResponse {
+        var queryParams: [String] = []
+
+        if !query.isEmpty {
+            let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            queryParams.append("query=\(encodedQuery)")
+        }
+
+        if let inStock = inStock {
+            queryParams.append("in_stock=\(inStock)")
+        }
+
+        if let lifeLimited = lifeLimited {
+            queryParams.append("life_limited=\(lifeLimited)")
+        }
+
+        queryParams.append("limit=\(limit)")
+        queryParams.append("offset=\(offset)")
+
+        let endpoint = "/parts/search?\(queryParams.joined(separator: "&"))"
+        return try await performRequest(endpoint: endpoint, method: "GET")
     }
 
     func getPart(id: Int) async throws -> Part {
@@ -536,6 +556,17 @@ class APIService {
 
     func deleteLogbookAttachment(id: Int) async throws {
         let _: EmptyResponse = try await performRequest(endpoint: "/unified-logbook/attachments/\(id)", method: "DELETE")
+    }
+
+    // MARK: - Manuals
+
+    func getManualURLs() async throws -> [String: ManualURLInfo] {
+        try await performRequest(endpoint: "/manuals/urls", method: "GET")
+    }
+
+    func updateManualURL(manualType: String, url: String, description: String?) async throws -> ManualURL {
+        let body = ["url": url, "description": description ?? ""]
+        return try await performRequest(endpoint: "/manuals/urls/\(manualType)", method: "PUT", body: body)
     }
 
     // MARK: - Generic Request

@@ -6,35 +6,139 @@ const { authenticateToken } = require('../middleware/auth');
 // All routes require authentication
 router.use(authenticateToken);
 
-// Search parts (with real-time filtering)
+// Search parts (optimized for 200k+ parts with server-side filtering and pagination)
 router.get('/search', async (req, res) => {
-  const { query, category, low_stock } = req.query;
+  const {
+    query,
+    category,
+    low_stock,
+    in_stock,
+    life_limited,
+    limit = 100,
+    offset = 0
+  } = req.query;
 
   try {
-    let sql = 'SELECT * FROM parts WHERE 1=1';
+    let sql = `SELECT id, part_number, alternate_part_number, description, manufacturer,
+                      category, quantity_in_stock, minimum_quantity, unit_price,
+                      location, is_life_limited, qr_code
+               FROM parts
+               WHERE 1=1`;
     const params = [];
     let paramIndex = 1;
 
-    if (query) {
-      sql += ` AND (LOWER(part_number) LIKE LOWER($${paramIndex}) OR LOWER(description) LIKE LOWER($${paramIndex}))`;
-      params.push(`%${query}%`);
-      paramIndex++;
+    // Search query - prioritize exact part number matches, then fuzzy search
+    if (query && query.trim().length > 0) {
+      sql += ` AND (
+        LOWER(part_number) = LOWER($${paramIndex})
+        OR LOWER(part_number) LIKE LOWER($${paramIndex + 1})
+        OR description ILIKE $${paramIndex + 1}
+      )`;
+      params.push(query.trim(), `%${query.trim()}%`);
+      paramIndex += 2;
     }
 
+    // Category filter
     if (category) {
       sql += ` AND category = $${paramIndex}`;
       params.push(category);
       paramIndex++;
     }
 
+    // Low stock filter
     if (low_stock === 'true') {
       sql += ' AND quantity_in_stock <= minimum_quantity';
     }
 
-    sql += ' ORDER BY part_number';
+    // In stock filter
+    if (in_stock === 'true') {
+      sql += ' AND quantity_in_stock > 0';
+    }
+
+    // Life limited filter
+    if (life_limited === 'true') {
+      sql += ' AND is_life_limited = true';
+    } else if (life_limited === 'false') {
+      sql += ' AND is_life_limited = false';
+    }
+
+    // Save params count before ORDER BY (for count query)
+    const whereClauseParamsCount = params.length;
+
+    // Ordering: exact part_number match first, then alphabetical
+    if (query && query.trim().length > 0) {
+      sql += ` ORDER BY
+        CASE WHEN LOWER(part_number) = LOWER($${paramIndex}) THEN 0 ELSE 1 END,
+        part_number`;
+      params.push(query.trim());
+      paramIndex++;
+    } else {
+      sql += ' ORDER BY part_number';
+    }
+
+    // Pagination
+    sql += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(parseInt(limit), parseInt(offset));
 
     const result = await pool.query(sql, params);
-    res.json(result.rows);
+
+    // Get total count for pagination info
+    let totalCount = result.rows.length;
+    if (query || category || low_stock || in_stock || life_limited) {
+      try {
+        // Build a separate count query using the same WHERE conditions
+        let countSql = 'SELECT COUNT(*) as count FROM parts WHERE 1=1';
+        const countParams = params.slice(0, whereClauseParamsCount);
+
+        // Re-apply all the WHERE conditions (without ORDER BY or LIMIT)
+        let countParamIndex = 1;
+
+        if (query && query.trim().length > 0) {
+          countSql += ` AND (
+            LOWER(part_number) = LOWER($${countParamIndex})
+            OR LOWER(part_number) LIKE LOWER($${countParamIndex + 1})
+            OR description ILIKE $${countParamIndex + 1}
+          )`;
+          countParamIndex += 2;
+        }
+
+        if (category) {
+          countSql += ` AND category = $${countParamIndex}`;
+          countParamIndex++;
+        }
+
+        if (low_stock === 'true') {
+          countSql += ' AND quantity_in_stock <= minimum_quantity';
+        }
+
+        if (in_stock === 'true') {
+          countSql += ' AND quantity_in_stock > 0';
+        }
+
+        if (life_limited === 'true') {
+          countSql += ' AND is_life_limited = true';
+        } else if (life_limited === 'false') {
+          countSql += ' AND is_life_limited = false';
+        }
+
+        const countResult = await pool.query(countSql, countParams);
+        if (countResult.rows[0]) {
+          totalCount = parseInt(countResult.rows[0].count);
+        }
+      } catch (countError) {
+        console.error('Count query error:', countError);
+        // If count fails, just use result length
+        totalCount = result.rows.length;
+      }
+    }
+
+    res.json({
+      parts: result.rows,
+      total: totalCount,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      hasMore: totalCount > (parseInt(offset) + result.rows.length)
+    });
   } catch (error) {
     console.error('Search error:', error);
     res.status(500).json({ error: 'Failed to search parts' });
@@ -75,20 +179,17 @@ router.get('/qr/:qr_code', async (req, res) => {
   }
 });
 
-// Get all parts
+// Get all parts - DEPRECATED for large datasets
+// Returns empty array with a warning to use /search instead
 router.get('/', async (req, res) => {
-  try {
-    console.log('Fetching all parts...');
-    const result = await pool.query(
-      'SELECT * FROM parts ORDER BY part_number'
-    );
-    console.log(`Returning ${result.rows.length} parts`);
-    console.log('First part:', JSON.stringify(result.rows[0]));
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Get parts error:', error);
-    res.status(500).json({ error: 'Failed to fetch parts' });
-  }
+  // For backwards compatibility, return empty array and suggest using search
+  console.warn('GET /parts called - this endpoint is deprecated for performance. Use /search instead.');
+  res.json({
+    parts: [],
+    total: 0,
+    message: 'Use /api/parts/search endpoint with query parameters for better performance',
+    hint: 'Start typing in the search box to find parts'
+  });
 });
 
 // Get single part by ID (must come after specific routes)
