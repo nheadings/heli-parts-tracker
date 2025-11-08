@@ -59,7 +59,7 @@ struct QRScannerView: View {
     @State private var detectedTexts: [DetectedText] = []
     @State private var searchedTexts: Set<String> = [] // Track what we've already searched
     @State private var currentlySearching: Set<String> = [] // Track ongoing searches
-    @State private var foundPart: Part?
+    @State private var foundPartWithConflicts: PartWithConflicts?
     @State private var isFrozen = false
     @State private var zoomFactor: CGFloat = 1.0
     @State private var lastSuccessfulScan: Date?
@@ -111,10 +111,11 @@ struct QRScannerView: View {
                         .position(x: centerX, y: centerY - 20)
                     }
                 }
-                .onChange(of: detectedTexts) { newTexts in
-                    // Auto-search new detections
-                    for detected in newTexts {
-                        if !searchedTexts.contains(detected.text) && !currentlySearching.contains(detected.text) {
+                .onChange(of: detectedTexts) { oldValue, newValue in
+                    // Auto-search new detections immediately
+                    for detected in newValue {
+                        if !searchedTexts.contains(detected.text) &&
+                           !currentlySearching.contains(detected.text) {
                             searchForPart(detected.text)
                         }
                     }
@@ -212,19 +213,21 @@ struct QRScannerView: View {
                     }
                 }
             }
-            .sheet(item: $foundPart) { part in
-                NavigationView {
-                    PartDetailView(part: part)
-                        .environmentObject(partsViewModel)
-                        .toolbar {
-                            ToolbarItem(placement: .navigationBarTrailing) {
-                                Button("Done") {
-                                    foundPart = nil
-                                    // Close the scanner when part detail is dismissed
-                                    dismiss()
-                                }
+            .sheet(item: $foundPartWithConflicts) { partData in
+                NavigationStack {
+                    PartDetailView(
+                        part: partData.part,
+                        conflictWarning: partData.hasConflicts ? partData.conflicts : nil
+                    )
+                    .environmentObject(partsViewModel)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") {
+                                foundPartWithConflicts = nil
+                                dismiss()
                             }
                         }
+                    }
                 }
             }
         }
@@ -278,17 +281,18 @@ struct QRScannerView: View {
 
         // Skip if too short after normalization
         guard normalizedPartNumber.count >= 3 else {
-            searchedTexts.insert(partNumber)
+            searchedTexts.insert(normalizedPartNumber)
             return
         }
 
         // Don't search if we already did or if we're currently searching
-        guard !searchedTexts.contains(partNumber) && !currentlySearching.contains(partNumber) else {
+        // Use NORMALIZED part number to prevent "P/N C123-1" and "C123-1" from being searched twice
+        guard !searchedTexts.contains(normalizedPartNumber) && !currentlySearching.contains(normalizedPartNumber) else {
             return
         }
 
-        // Mark as currently searching
-        currentlySearching.insert(partNumber)
+        // Mark as currently searching (use normalized to prevent duplicates)
+        currentlySearching.insert(normalizedPartNumber)
 
         Task {
             do {
@@ -297,20 +301,40 @@ struct QRScannerView: View {
                 let response = try await APIService.shared.searchParts(query: normalizedPartNumber, limit: 10)
 
                 await MainActor.run {
-                    // Remove from currently searching
-                    currentlySearching.remove(partNumber)
-                    // Add to searched set
-                    searchedTexts.insert(partNumber)
+                    // Remove from currently searching (use normalized)
+                    currentlySearching.remove(normalizedPartNumber)
+                    // Add to searched set (use normalized to prevent duplicates)
+                    searchedTexts.insert(normalizedPartNumber)
 
                     // ONLY accept exact matches (case-insensitive) to prevent OCR errors
                     // Do NOT accept partial matches - prevents C121-1 matching when scanning C121-17
-                    if let part = response.parts?.first(where: {
+                    if let exactMatch = response.parts?.first(where: {
                         $0.partNumber.lowercased() == normalizedPartNumber.lowercased()
                     }) {
                         // SUCCESS! Found exact match
-                        print("✅ Exact match found: \(part.partNumber)")
+                        print("✅ Exact match found: \(exactMatch.partNumber)")
+
+                        // Check for longer variants (potential OCR omissions)
+                        // If scanned "C123-1" but "C123-17", "C123-10" exist, warn user
+                        let longerVariants = response.parts?.filter { part in
+                            let partNum = part.partNumber.lowercased()
+                            let scanned = normalizedPartNumber.lowercased()
+                            // Part must start with scanned text AND be longer
+                            return partNum.hasPrefix(scanned) && partNum != scanned
+                        } ?? []
+
+                        if longerVariants.isEmpty {
+                            print("✅ No conflicts - safe to proceed")
+                        } else {
+                            print("⚠️ WARNING: Longer variants exist: \(longerVariants.map { $0.partNumber }.joined(separator: ", "))")
+                        }
+
+                        // Create PartWithConflicts to pass conflict info to detail view
                         playSuccessSound()
-                        foundPart = part
+                        foundPartWithConflicts = PartWithConflicts(
+                            part: exactMatch,
+                            conflicts: longerVariants
+                        )
                         // Stop scanning but keep scanner open
                         isFrozen = true
                     } else {
@@ -326,8 +350,8 @@ struct QRScannerView: View {
             } catch {
                 print("Search error for '\(partNumber)': \(error)")
                 await MainActor.run {
-                    currentlySearching.remove(partNumber)
-                    searchedTexts.insert(partNumber)
+                    currentlySearching.remove(normalizedPartNumber)
+                    searchedTexts.insert(normalizedPartNumber)
                 }
             }
         }
@@ -374,10 +398,6 @@ protocol TextScannerDelegate: AnyObject {
     func didDetectTexts(_ texts: [DetectedText])
 }
 
-struct FilteredWordsData: Codable {
-    let commonWords: [String]
-}
-
 class TextScannerViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
     var captureSession: AVCaptureSession!
     var previewLayer: AVCaptureVideoPreviewLayer!
@@ -386,7 +406,7 @@ class TextScannerViewController: UIViewController, AVCaptureVideoDataOutputSampl
     var scanRegion: CGRect = CGRect(x: 0.3, y: 0.42, width: 0.4, height: 0.08)
     var isFrozen: Bool = false
     private var lastScanTime: Date?
-    private let scanInterval: TimeInterval = 0.5 // Scan every 0.5 seconds
+    private let scanInterval: TimeInterval = 0.1 // Scan every 0.1 seconds (10 times per second)
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -505,6 +525,7 @@ class TextScannerViewController: UIViewController, AVCaptureVideoDataOutputSampl
                   let previewLayer = self.previewLayer else { return }
 
             var detectedTexts: [DetectedText] = []
+            var candidateTexts: [(text: String, box: CGRect)] = []
 
             // Collect all text that matches part number pattern
             for observation in observations {
@@ -529,17 +550,52 @@ class TextScannerViewController: UIViewController, AVCaptureVideoDataOutputSampl
 
                     // Only include text within the scan region
                     if self.scanRegion.intersects(normalizedBox) {
-                        // Check for collision with existing detected texts
-                        let hasCollision = detectedTexts.contains { existing in
-                            existing.boundingBox.intersects(normalizedBox)
-                        }
-
-                        // Only add if no collision with existing text
-                        if !hasCollision {
-                            detectedTexts.append(DetectedText(text: text, boundingBox: normalizedBox))
-                        }
+                        candidateTexts.append((text: text, box: normalizedBox))
                     }
                 }
+            }
+
+            // Merge adjacent text (e.g., "P/N" + "1234" -> "P/N 1234")
+            var mergedTexts: [(text: String, box: CGRect)] = []
+            for candidate in candidateTexts {
+                // Check if this text is horizontally adjacent to existing text
+                var merged = false
+                for i in 0..<mergedTexts.count {
+                    let existing = mergedTexts[i]
+
+                    // Check if boxes are on same horizontal line and close together
+                    let verticalOverlap = min(candidate.box.maxY, existing.box.maxY) - max(candidate.box.minY, existing.box.minY)
+                    let horizontalGap = min(abs(candidate.box.minX - existing.box.maxX), abs(existing.box.minX - candidate.box.maxX))
+
+                    if verticalOverlap > 0.01 && horizontalGap < 0.03 {
+                        // Merge these texts
+                        let combinedText: String
+                        let combinedBox: CGRect
+
+                        if candidate.box.minX < existing.box.minX {
+                            // Candidate is to the left
+                            combinedText = candidate.text + " " + existing.text
+                            combinedBox = candidate.box.union(existing.box)
+                        } else {
+                            // Candidate is to the right
+                            combinedText = existing.text + " " + candidate.text
+                            combinedBox = existing.box.union(candidate.box)
+                        }
+
+                        mergedTexts[i] = (text: combinedText, box: combinedBox)
+                        merged = true
+                        break
+                    }
+                }
+
+                if !merged {
+                    mergedTexts.append(candidate)
+                }
+            }
+
+            // Convert merged texts to DetectedText
+            for merged in mergedTexts {
+                detectedTexts.append(DetectedText(text: merged.text, boundingBox: merged.box))
             }
 
             // Update UI with all detected text (or clear if none found)
@@ -557,23 +613,26 @@ class TextScannerViewController: UIViewController, AVCaptureVideoDataOutputSampl
     }
 
     private func looksLikePartNumber(_ text: String) -> Bool {
-        // Must be 3-20 characters
-        guard text.count >= 3 && text.count <= 20 else { return false }
+        // Allow very short text if it looks like a prefix (P/N, PN) - will be merged with adjacent text
+        let upperText = text.uppercased()
+        if upperText == "P/N" || upperText == "PN" || upperText == "P/N:" || upperText == "PN:" {
+            return true
+        }
 
-        // Must contain at least one digit
+        // Must be at least 2 characters for part numbers
+        guard text.count >= 2 && text.count <= 25 else { return false }
+
+        // Must contain at least one digit (unless it's a prefix)
         let hasDigit = text.range(of: "[0-9]", options: .regularExpression) != nil
         guard hasDigit else { return false }
 
-        // Must contain at least one letter OR be mostly numbers with separators
-        let hasLetter = text.range(of: "[A-Za-z]", options: .regularExpression) != nil
-
         // Should mostly be alphanumeric with common separators
-        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./: "))
         guard text.rangeOfCharacter(from: allowedCharacters.inverted) == nil else { return false }
 
-        // Reject if it's purely numeric (likely a serial number or other info)
+        // Reject if it's purely numeric and very short (likely page numbers, etc.)
         let isOnlyNumbers = text.range(of: "^[0-9]+$", options: .regularExpression) != nil
-        if isOnlyNumbers && text.count < 5 {
+        if isOnlyNumbers && text.count < 3 {
             return false
         }
 

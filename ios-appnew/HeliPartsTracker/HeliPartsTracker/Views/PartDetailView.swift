@@ -2,10 +2,11 @@ import SwiftUI
 
 struct PartDetailView: View {
     let part: Part
+    var conflictWarning: [Part]? = nil // Optional conflict warning from scanner
     @Environment(\.openURL) var openURL
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var viewModel: PartsViewModel
-    @StateObject private var pdfCache = PDFCacheService.shared
+    @ObservedObject private var pdfCache = PDFCacheService.shared
     @State private var showingAddQuantity = false
     @State private var quantityToAdd = ""
     @State private var showingDeleteConfirmation = false
@@ -22,6 +23,57 @@ struct PartDetailView: View {
 
     var body: some View {
         List {
+            // OCR CONFLICT WARNING BANNER
+            if let conflicts = conflictWarning, !conflicts.isEmpty {
+                let _ = print("⚠️ PartDetailView showing conflict warning for \(conflicts.count) parts")
+            }
+            if let conflicts = conflictWarning, !conflicts.isEmpty {
+                Section {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.title2)
+                                .foregroundColor(.red)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("OCR Warning: Longer Parts Exist")
+                                    .font(.headline)
+                                    .foregroundColor(.red)
+                                Text("Part '\(part.partNumber)' found, but longer variants exist. Verify this is correct.")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        DisclosureGroup("View \(conflicts.count) Longer Variant\(conflicts.count == 1 ? "" : "s")") {
+                            ForEach(conflicts) { conflict in
+                                NavigationLink(destination:
+                                    PartDetailView(part: conflict)
+                                        .environmentObject(viewModel)
+                                ) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(conflict.partNumber)
+                                            .font(.headline)
+                                            .foregroundColor(.primary)
+                                        Text(conflict.description)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        if let manufacturer = conflict.manufacturer {
+                                            Text("Mfg: \(manufacturer)")
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                    .padding(.vertical, 4)
+                                }
+                            }
+                        }
+                        .tint(.red)
+                    }
+                    .padding(.vertical, 8)
+                }
+                .listRowBackground(Color.red.opacity(0.1))
+            }
+
             Section("Information") {
                 DetailRow(label: "Part Number", value: part.partNumber)
                 if let altPartNumber = part.alternatePartNumber {
@@ -239,15 +291,18 @@ struct PartDetailView: View {
         .navigationTitle("Part Details")
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            print("🔄 PartDetailView .task block started for part: \(part.partNumber)")
             await loadTransactions()
             // Preload IPC, MM, and Price List in background if they're cached
             if part.category == "R44" {
+                print("📱 Preloading R44 PDFs...")
                 pdfCache.preloadPDF(type: .r44IPC)
                 pdfCache.preloadPDF(type: .r44MM)
                 pdfCache.preloadPDF(type: .r44PriceList)
                 // Search price list for current price
                 await searchPriceListForPrice()
             }
+            print("✅ PartDetailView .task block completed")
         }
         .sheet(isPresented: $showingAddQuantity) {
             NavigationView {
@@ -439,12 +494,44 @@ struct PartDetailView: View {
     private func openManual(type: PDFCacheService.PDFType) async {
         // Check if PDF is cached
         if let cachedURL = pdfCache.getCachedPDFURL(type: type) {
-            // Open cached PDF (preloaded document will be used if available)
-            pdfURLToShow = cachedURL
-            pdfTypeToShow = type
-            pdfSearchTerm = part.partNumber
-            showingPDFViewer = true
+            print("📁 Found cached PDF at: \(cachedURL)")
+
+            // Verify file actually exists
+            let fileExists = FileManager.default.fileExists(atPath: cachedURL.path)
+            print("📄 File exists: \(fileExists)")
+
+            if fileExists {
+                // Open cached PDF (preloaded document will be used if available)
+                let preloaded = pdfCache.getPreloadedDocument(type: type)
+                print("💾 Preloaded document available: \(preloaded != nil)")
+
+                pdfURLToShow = cachedURL
+                pdfTypeToShow = type
+                pdfSearchTerm = part.partNumber
+                showingPDFViewer = true
+            } else {
+                print("❌ Cached file doesn't exist, forcing download")
+                // File missing, force download
+                pdfCache.errorMessage = "Re-downloading \(type.rawValue)..."
+
+                do {
+                    let url = await pdfCache.getConfiguredURL(type: type)
+                    let fileURL = try await pdfCache.downloadPDF(type: type, fromURL: url)
+
+                    // Preload the document now that it's downloaded
+                    pdfCache.preloadPDF(type: type)
+
+                    // Open the downloaded PDF
+                    pdfURLToShow = fileURL
+                    pdfTypeToShow = type
+                    pdfSearchTerm = part.partNumber
+                    showingPDFViewer = true
+                } catch {
+                    pdfCache.errorMessage = "Failed to download: \(error.localizedDescription)"
+                }
+            }
         } else {
+            print("📥 No cached PDF, downloading...")
             // Need to download first
             pdfCache.errorMessage = "Downloading \(type.rawValue)... This may take a minute."
 
@@ -802,15 +889,22 @@ struct PDFViewerRepresentable: UIViewRepresentable {
         } else {
             // Load from disk in background
             Task {
-                let document = PDFDocument(url: pdfURL)
-                await MainActor.run {
-                    pdfView.document = document
-                    context.coordinator.document = document
-                    isLoadingPDF = false
+                if let document = PDFDocument(url: pdfURL) {
+                    await MainActor.run {
+                        pdfView.document = document
+                        context.coordinator.document = document
+                        isLoadingPDF = false
 
-                    // Fix scale for rotated pages
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        pdfView.scaleFactor = pdfView.scaleFactorForSizeToFit
+                        // Fix scale for rotated pages
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            pdfView.scaleFactor = pdfView.scaleFactorForSizeToFit
+                        }
+                    }
+                } else {
+                    // Failed to load PDF
+                    print("❌ Failed to load PDF from \(pdfURL)")
+                    await MainActor.run {
+                        isLoadingPDF = false
                     }
                 }
             }

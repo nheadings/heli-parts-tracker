@@ -67,6 +67,17 @@ struct Part: Codable, Identifiable, Hashable {
     }
 }
 
+// Wrapper struct to pass conflict information from scanner to part details
+struct PartWithConflicts: Identifiable {
+    let id = UUID()
+    let part: Part
+    let conflicts: [Part]
+
+    var hasConflicts: Bool {
+        return !conflicts.isEmpty
+    }
+}
+
 struct PartCreate: Codable {
     let partNumber: String
     let alternatePartNumber: String?
