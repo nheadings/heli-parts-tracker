@@ -285,6 +285,7 @@ struct ManualURLsSettingsView: View {
     @StateObject private var pdfCache = PDFCacheService.shared
     @State private var r44IPCURL: String = ""
     @State private var r44MMURL: String = ""
+    @State private var r44PriceListURL: String = ""
     @State private var isSaving = false
     @State private var showingSaveSuccess = false
 
@@ -308,6 +309,17 @@ struct ManualURLsSettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     TextField("R44 MM URL", text: $r44MMURL, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                        .lineLimit(3...5)
+                        .autocapitalization(.none)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Price List URL")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("R44 Price List URL", text: $r44PriceListURL, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
                         .font(.caption)
                         .lineLimit(3...5)
@@ -340,6 +352,7 @@ struct ManualURLsSettingsView: View {
                 Button("Reset to Defaults") {
                     r44IPCURL = PDFCacheService.PDFType.r44IPC.defaultURL
                     r44MMURL = PDFCacheService.PDFType.r44MM.defaultURL
+                    r44PriceListURL = PDFCacheService.PDFType.r44PriceList.defaultURL
                 }
             }
         }
@@ -348,6 +361,7 @@ struct ManualURLsSettingsView: View {
         .task {
             r44IPCURL = await pdfCache.getConfiguredURL(type: .r44IPC)
             r44MMURL = await pdfCache.getConfiguredURL(type: .r44MM)
+            r44PriceListURL = await pdfCache.getConfiguredURL(type: .r44PriceList)
         }
         .alert("Saved to Database", isPresented: $showingSaveSuccess) {
             Button("OK", role: .cancel) {}
@@ -362,6 +376,7 @@ struct ManualURLsSettingsView: View {
         do {
             try await pdfCache.saveURL(type: .r44IPC, url: r44IPCURL)
             try await pdfCache.saveURL(type: .r44MM, url: r44MMURL)
+            try await pdfCache.saveURL(type: .r44PriceList, url: r44PriceListURL)
             showingSaveSuccess = true
         } catch {
             print("Failed to save URLs: \(error)")
@@ -384,6 +399,7 @@ struct ManualDownloadsView: View {
                    footer: Text("Downloaded manuals are stored on your device for offline access. Tap download to cache, or refresh to update.")) {
                 manualRow(type: .r44IPC)
                 manualRow(type: .r44MM)
+                manualRow(type: .r44PriceList)
             }
         }
         .navigationTitle("Download Manuals")

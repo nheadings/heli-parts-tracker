@@ -15,6 +15,8 @@ struct PartDetailView: View {
     @State private var pdfURLToShow: URL?
     @State private var pdfTypeToShow: PDFCacheService.PDFType?
     @State private var pdfSearchTerm: String = ""
+    @State private var priceListPrice: String = ""
+    @State private var isSearchingPriceList = false
     @State private var transactions: [InventoryTransaction] = []
     @State private var isLoadingTransactions = false
 
@@ -55,6 +57,14 @@ struct PartDetailView: View {
             if let price = part.unitPrice {
                 Section("Pricing") {
                     DetailRow(label: "Unit Price", value: String(format: "$%.2f", price))
+                    HStack {
+                        Image(systemName: "calendar")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("From October 2025 Price List")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
 
@@ -89,6 +99,38 @@ struct PartDetailView: View {
                                 Text("Opens PDF and searches for \(part.partNumber)")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                        }
+                    }
+
+                    Button(action: {
+                        openRobinsonPriceList()
+                    }) {
+                        HStack {
+                            Image(systemName: "dollarsign.circle.fill")
+                                .foregroundColor(.green)
+                            VStack(alignment: .leading) {
+                                Text("View in R44 Price List")
+                                if isSearchingPriceList {
+                                    HStack(spacing: 4) {
+                                        ProgressView()
+                                            .scaleEffect(0.7)
+                                        Text("Searching PDF...")
+                                    }
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                } else if !priceListPrice.isEmpty {
+                                    Text("Price: \(priceListPrice)")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                        .fontWeight(.semibold)
+                                } else {
+                                    Text("No price found in PDF")
+                                        .font(.caption)
+                                        .foregroundColor(.orange)
+                                }
                             }
                             Spacer()
                             Image(systemName: "arrow.up.right.square")
@@ -198,10 +240,13 @@ struct PartDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await loadTransactions()
-            // Preload both IPC and MM in background if they're cached
+            // Preload IPC, MM, and Price List in background if they're cached
             if part.category == "R44" {
                 pdfCache.preloadPDF(type: .r44IPC)
                 pdfCache.preloadPDF(type: .r44MM)
+                pdfCache.preloadPDF(type: .r44PriceList)
+                // Search price list for current price
+                await searchPriceListForPrice()
             }
         }
         .sheet(isPresented: $showingAddQuantity) {
@@ -311,6 +356,83 @@ struct PartDetailView: View {
     private func openRobinsonMM() {
         Task {
             await openManual(type: .r44MM)
+        }
+    }
+
+    private func openRobinsonPriceList() {
+        Task {
+            await openManual(type: .r44PriceList)
+        }
+    }
+
+    private func searchPriceListForPrice() async {
+        // Only search if price list is cached
+        guard let priceListURL = pdfCache.getCachedPDFURL(type: .r44PriceList) else {
+            print("⚠️ Price list not downloaded")
+            priceListPrice = ""
+            return
+        }
+
+        print("🔍 Starting price search for: \(part.partNumber)")
+        isSearchingPriceList = true
+        priceListPrice = ""
+
+        // Load and search PDF
+        guard let document = PDFDocument(url: priceListURL) else {
+            print("❌ Failed to load price list PDF")
+            isSearchingPriceList = false
+            return
+        }
+
+        print("📖 Loaded price list: \(document.pageCount) pages")
+
+        DispatchQueue.global(qos: .utility).async {
+            var foundPrice = ""
+
+            // Search all pages for the part number
+            for pageNum in 0..<document.pageCount {
+                guard let page = document.page(at: pageNum) else { continue }
+                guard let text = page.string else { continue }
+
+                // Look for line with this part number
+                let lines = text.components(separatedBy: "\n")
+                for line in lines {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+                    // Check if line starts with our part number
+                    if trimmed.hasPrefix(self.part.partNumber + " ") ||
+                       trimmed.hasPrefix(self.part.partNumber + "\t") {
+                        print("📄 Found on page \(pageNum + 1): \(trimmed)")
+
+                        // Extract price using regex (may or may not have $ after)
+                        let pattern = #"(\d{1,3}(?:,\d{3})*\.\d{2})\$?"#
+                        if let regex = try? NSRegularExpression(pattern: pattern),
+                           let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+                           let priceRange = Range(match.range(at: 1), in: trimmed) {
+                            let priceStr = String(trimmed[priceRange]).replacingOccurrences(of: ",", with: "")
+                            print("💰 Extracted: \(priceStr)")
+
+                            if let priceVal = Double(priceStr) {
+                                foundPrice = String(format: "$%.2f (Oct 2025)", priceVal)
+                                print("✅ Success: \(foundPrice)")
+                            }
+                        } else {
+                            print("❌ Regex failed on: \(trimmed)")
+                        }
+                        break
+                    }
+                }
+                if !foundPrice.isEmpty { break }
+            }
+
+            if foundPrice.isEmpty {
+                print("⚠️ No price found for '\(self.part.partNumber)'")
+            }
+
+            DispatchQueue.main.async {
+                self.priceListPrice = foundPrice
+                self.isSearchingPriceList = false
+            }
         }
     }
 

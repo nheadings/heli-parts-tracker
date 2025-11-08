@@ -213,22 +213,42 @@ struct QRScannerView: View {
     }
 
     private func searchForPart(_ partNumber: String) {
-        // Search for exact match first
-        if let part = partsViewModel.parts.first(where: { $0.partNumber.lowercased() == partNumber.lowercased() }) {
-            foundPart = part
-            selectedText = nil
-            detectedTexts = []
-            isFrozen = false
-        } else {
-            // Try partial match
-            if let part = partsViewModel.parts.first(where: { $0.partNumber.lowercased().contains(partNumber.lowercased()) }) {
-                foundPart = part
-                selectedText = nil
-                detectedTexts = []
-                isFrozen = false
-            } else {
-                notFoundText = partNumber
-                showingNotFound = true
+        Task {
+            do {
+                // Search the database using the API
+                let response = try await APIService.shared.searchParts(query: partNumber, limit: 10)
+
+                // Try exact match first
+                if let part = response.parts?.first(where: { $0.partNumber.lowercased() == partNumber.lowercased() }) {
+                    await MainActor.run {
+                        foundPart = part
+                        selectedText = nil
+                        detectedTexts = []
+                        isFrozen = false
+                    }
+                } else if let part = response.parts?.first {
+                    // Use first result if no exact match
+                    await MainActor.run {
+                        foundPart = part
+                        selectedText = nil
+                        detectedTexts = []
+                        isFrozen = false
+                    }
+                } else {
+                    // No results found
+                    await MainActor.run {
+                        notFoundText = partNumber
+                        showingNotFound = true
+                        selectedText = nil
+                    }
+                }
+            } catch {
+                print("Search error: \(error)")
+                await MainActor.run {
+                    notFoundText = partNumber
+                    showingNotFound = true
+                    selectedText = nil
+                }
             }
         }
     }

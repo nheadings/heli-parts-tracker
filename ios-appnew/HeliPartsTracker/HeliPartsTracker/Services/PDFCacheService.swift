@@ -20,6 +20,7 @@ class PDFCacheService: ObservableObject {
     enum PDFType: String, CaseIterable {
         case r44IPC = "R44 IPC"
         case r44MM = "R44 Maintenance Manual"
+        case r44PriceList = "R44 Price List"
         case r22IPC = "R22 IPC"
         case r22MM = "R22 Maintenance Manual"
         case r66IPC = "R66 IPC"
@@ -29,6 +30,7 @@ class PDFCacheService: ObservableObject {
             switch self {
             case .r44IPC: return "r44_ipc.pdf"
             case .r44MM: return "r44_mm.pdf"
+            case .r44PriceList: return "r44_price_list.pdf"
             case .r22IPC: return "r22_ipc.pdf"
             case .r22MM: return "r22_mm.pdf"
             case .r66IPC: return "r66_ipc.pdf"
@@ -48,6 +50,7 @@ class PDFCacheService: ObservableObject {
             switch self {
             case .r44IPC: return "https://robinsonstrapistorprod.blob.core.windows.net/uploads/assets/r44_ipc_full_book_90d807fd56.pdf"
             case .r44MM: return "https://robinsonstrapistorprod.blob.core.windows.net/uploads/assets/r44_mm_full_book_a0b0b62448.pdf"
+            case .r44PriceList: return "https://robinsonstrapistorprod.blob.core.windows.net/uploads/assets/R44_Price_List_10_13_25_b80a09fab4.pdf"
             case .r22IPC: return "https://robinsonstrapistorprod.blob.core.windows.net/uploads/assets/r22_ipc_full_book_856e8fc9ac.pdf"
             case .r22MM: return "https://robinsonstrapistorprod.blob.core.windows.net/uploads/assets/r22_mm_full_book_f51b33a19f.pdf"
             case .r66IPC: return "https://robinsonstrapistorprod.blob.core.windows.net/uploads/assets/r66_ipc_full_book_1dc86a7aea.pdf"
