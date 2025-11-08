@@ -244,11 +244,11 @@ struct PartDetailView: View {
             InstallPartOnHelicopterView(part: part)
         }
         .sheet(isPresented: $showingPDFViewer) {
-            if let pdfURL = pdfURLToShow {
+            if let pdfURL = pdfURLToShow, let pdfType = pdfTypeToShow {
                 PDFViewerWithSearch(
                     pdfURL: pdfURL,
                     initialSearchTerm: pdfSearchTerm,
-                    preloadedDocument: nil  // Don't use preloaded for now - testing
+                    preloadedDocument: pdfCache.getPreloadedDocument(type: pdfType)
                 )
             }
         }
@@ -530,36 +530,49 @@ struct PDFViewerWithSearch: View {
                     }
                     .padding(.horizontal)
 
-                    // Result navigation
-                    if resultCount > 0 && !isSearching {
-                        HStack {
-                            Text("\(currentResultIndex + 1) of \(resultCount)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                    // Result navigation or no results message
+                    if !isSearching && !searchTerm.isEmpty {
+                        if resultCount > 0 {
+                            HStack {
+                                Text("\(currentResultIndex + 1) of \(resultCount)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
 
-                            Spacer()
+                                Spacer()
 
-                            Button(action: {
-                                if currentResultIndex > 0 {
-                                    currentResultIndex -= 1
+                                Button(action: {
+                                    if currentResultIndex > 0 {
+                                        currentResultIndex -= 1
+                                    }
+                                }) {
+                                    Image(systemName: "chevron.up")
                                 }
-                            }) {
-                                Image(systemName: "chevron.up")
-                            }
-                            .disabled(currentResultIndex == 0)
+                                .disabled(currentResultIndex == 0)
 
-                            Button(action: {
-                                if currentResultIndex < resultCount - 1 {
-                                    currentResultIndex += 1
+                                Button(action: {
+                                    if currentResultIndex < resultCount - 1 {
+                                        currentResultIndex += 1
+                                    }
+                                }) {
+                                    Image(systemName: "chevron.down")
                                 }
-                            }) {
-                                Image(systemName: "chevron.down")
+                                .disabled(currentResultIndex >= resultCount - 1)
                             }
-                            .disabled(currentResultIndex >= resultCount - 1)
+                            .padding(.horizontal)
+                            .padding(.vertical, 4)
+                            .background(Color(.systemGroupedBackground))
+                        } else {
+                            HStack {
+                                Image(systemName: "exclamationmark.circle")
+                                    .foregroundColor(.orange)
+                                Text("No results found for '\(searchTerm)'")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 4)
+                            .background(Color(.systemGroupedBackground))
                         }
-                        .padding(.horizontal)
-                        .padding(.vertical, 4)
-                        .background(Color(.systemGroupedBackground))
                     }
                 }
                 .padding(.vertical, 8)
@@ -623,25 +636,12 @@ struct PDFViewerWithSearch: View {
             }
         }
         .onAppear {
-            // Reset all state for fresh start
             searchTerm = initialSearchTerm
-            resultCount = 0
-            currentResultIndex = 0
-            isSearching = false
-            isLoadingPDF = true
-
-            // Trigger search after a brief delay to ensure PDF is loaded
             if !initialSearchTerm.isEmpty {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     searchTrigger = UUID()
                 }
             }
-        }
-        .onDisappear {
-            // Clean up state when dismissed
-            resultCount = 0
-            currentResultIndex = 0
-            isSearching = false
         }
     }
 }
@@ -657,39 +657,38 @@ struct PDFViewerRepresentable: UIViewRepresentable {
     @Binding var resultCount: Int
 
     func makeUIView(context: Context) -> PDFView {
-        print("🆕 Creating new PDFView for: \(pdfURL.lastPathComponent)")
-
         let pdfView = PDFView()
         pdfView.autoScales = true
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
+        pdfView.displaysPageBreaks = true
+        pdfView.pageBreakMargins = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
 
         context.coordinator.pdfView = pdfView
-        context.coordinator.reset()  // Clear any old state
 
         // Use preloaded document if available (instant!), otherwise load from disk
         if let document = preloadedDocument {
-            print("✅ Using preloaded document: \(pdfURL.lastPathComponent), pages: \(document.pageCount)")
+            // Instant - already in memory
             pdfView.document = document
             context.coordinator.document = document
-            DispatchQueue.main.async {
-                isLoadingPDF = false
+            isLoadingPDF = false
+
+            // Fix scale for rotated pages
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                pdfView.scaleFactor = pdfView.scaleFactorForSizeToFit
             }
         } else {
-            print("⏳ Loading document from disk: \(pdfURL.lastPathComponent)")
-            // Load in background
-            Task.detached(priority: .userInitiated) {
-                if let document = PDFDocument(url: pdfURL) {
-                    print("✅ Loaded document: \(pdfURL.lastPathComponent), pages: \(document.pageCount)")
-                    await MainActor.run {
-                        pdfView.document = document
-                        context.coordinator.document = document
-                        isLoadingPDF = false
-                    }
-                } else {
-                    print("❌ Failed to load document: \(pdfURL.lastPathComponent)")
-                    await MainActor.run {
-                        isLoadingPDF = false
+            // Load from disk in background
+            Task {
+                let document = PDFDocument(url: pdfURL)
+                await MainActor.run {
+                    pdfView.document = document
+                    context.coordinator.document = document
+                    isLoadingPDF = false
+
+                    // Fix scale for rotated pages
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        pdfView.scaleFactor = pdfView.scaleFactorForSizeToFit
                     }
                 }
             }
@@ -699,14 +698,6 @@ struct PDFViewerRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ pdfView: PDFView, context: Context) {
-        // Check if document changed (switching between IPC/MM)
-        if let currentDoc = pdfView.document,
-           context.coordinator.document !== currentDoc {
-            print("🔄 Document changed, resetting coordinator")
-            context.coordinator.reset()
-            context.coordinator.document = currentDoc
-        }
-
         // Handle search trigger changes
         if context.coordinator.lastSearchTrigger != searchTrigger && !searchTerm.isEmpty {
             context.coordinator.lastSearchTrigger = searchTrigger
@@ -751,17 +742,11 @@ struct PDFViewerRepresentable: UIViewRepresentable {
         }
 
         func performSearch(searchTerm: String) {
-            // Ensure we have the document reference
             if document == nil {
                 document = pdfView?.document
             }
 
-            guard let pdfView = pdfView, let document = document else {
-                print("❌ Cannot search - no document loaded")
-                return
-            }
-
-            print("🔍 Searching for: '\(searchTerm)' in document with \(document.pageCount) pages")
+            guard let pdfView = pdfView, let document = document else { return }
 
             DispatchQueue.main.async {
                 self.isSearching = true
@@ -769,7 +754,6 @@ struct PDFViewerRepresentable: UIViewRepresentable {
 
             DispatchQueue.global(qos: .userInitiated).async {
                 let selections = document.findString(searchTerm, withOptions: .caseInsensitive)
-                print("📊 Found \(selections.count) results for '\(searchTerm)'")
 
                 DispatchQueue.main.async {
                     self.searchSelections = selections
@@ -779,9 +763,6 @@ struct PDFViewerRepresentable: UIViewRepresentable {
                         pdfView.highlightedSelections = selections
                         pdfView.go(to: selections[0])
                         pdfView.setCurrentSelection(selections[0], animate: true)
-                        print("✅ Jumped to first result on page \(selections[0].pages[0].label ?? "?")")
-                    } else {
-                        print("⚠️ No results found")
                     }
 
                     self.isSearching = false
@@ -790,12 +771,8 @@ struct PDFViewerRepresentable: UIViewRepresentable {
         }
 
         func goToResult(index: Int) {
-            guard let pdfView = pdfView, index < searchSelections.count else {
-                print("❌ Cannot navigate - index:\(index), selections:\(searchSelections.count)")
-                return
-            }
+            guard let pdfView = pdfView, index < searchSelections.count else { return }
             let selection = searchSelections[index]
-            print("➡️ Navigating to result \(index + 1) of \(searchSelections.count)")
             pdfView.go(to: selection)
             pdfView.setCurrentSelection(selection, animate: true)
         }
