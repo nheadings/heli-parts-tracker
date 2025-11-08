@@ -281,15 +281,7 @@ struct SquawkDetailView: View {
     }
 
     private func formatDateTime(_ dateString: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        guard let date = formatter.date(from: dateString) else {
-            return dateString
-        }
-
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateStyle = .medium
-        displayFormatter.timeStyle = .short
-        return displayFormatter.string(from: date)
+        return DateFormatting.formatDateTime(dateString)
     }
 
     private func markAsFixed() {

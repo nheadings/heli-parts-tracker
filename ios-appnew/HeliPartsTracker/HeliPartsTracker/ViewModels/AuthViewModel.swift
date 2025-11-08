@@ -17,6 +17,11 @@ class AuthViewModel: ObservableObject {
     func checkAuth() {
         if UserDefaults.standard.string(forKey: "authToken") != nil {
             isAuthenticated = true
+            // Restore user info from UserDefaults
+            if let userData = UserDefaults.standard.data(forKey: "currentUser"),
+               let user = try? JSONDecoder().decode(User.self, from: userData) {
+                currentUser = user
+            }
         }
     }
 
@@ -28,6 +33,11 @@ class AuthViewModel: ObservableObject {
             let response = try await apiService.login(username: username, password: password)
             currentUser = response.user
             isAuthenticated = true
+
+            // Save user info to UserDefaults for persistence
+            if let userData = try? JSONEncoder().encode(response.user) {
+                UserDefaults.standard.set(userData, forKey: "currentUser")
+            }
         } catch {
             errorMessage = "Login failed: \(error.localizedDescription)"
         }
@@ -39,5 +49,6 @@ class AuthViewModel: ObservableObject {
         apiService.clearToken()
         currentUser = nil
         isAuthenticated = false
+        UserDefaults.standard.removeObject(forKey: "currentUser")
     }
 }

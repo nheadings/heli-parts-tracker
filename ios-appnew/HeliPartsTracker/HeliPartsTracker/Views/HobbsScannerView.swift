@@ -233,11 +233,11 @@ struct HobbsScannerView: View {
                 // Create a flight record
                 let tachTime = hours - currentHours
                 if tachTime > 0 {
-                    let now = ISO8601DateFormatter().string(from: Date())
+                    let now = DateFormatting.toISO8601String(from: Date())
 
                     // Calculate departure time based on tach time (assuming tach time = flight time)
                     let departureDate = Date().addingTimeInterval(-tachTime * 3600)
-                    let departureTime = ISO8601DateFormatter().string(from: departureDate)
+                    let departureTime = DateFormatting.toISO8601String(from: departureDate)
 
                     let flightCreate = FlightCreate(
                         hobbsStart: currentHours,

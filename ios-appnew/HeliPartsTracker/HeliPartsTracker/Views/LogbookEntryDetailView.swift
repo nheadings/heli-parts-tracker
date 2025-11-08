@@ -162,6 +162,43 @@ struct LogbookEntryDetailView: View {
             // Description
             DetailRow(label: "Description", value: entryDetail.description)
 
+            // Squawk-specific fields
+            if let severity = entryDetail.severity {
+                HStack {
+                    Text("Severity:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .textCase(.uppercase)
+                    Spacer()
+                    Text(severity.capitalized)
+                        .font(.body)
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(severityColor(severity, status: entryDetail.status).opacity(0.2))
+                        .foregroundColor(severityColor(severity, status: entryDetail.status))
+                        .cornerRadius(6)
+                }
+            }
+
+            if let status = entryDetail.status {
+                HStack {
+                    Text("Status:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .textCase(.uppercase)
+                    Spacer()
+                    Text(status.capitalized)
+                        .font(.body)
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(statusColor(status).opacity(0.2))
+                        .foregroundColor(statusColor(status))
+                        .cornerRadius(6)
+                }
+            }
+
             // Hours
             if let hours = entryDetail.hoursAtEvent {
                 DetailRow(label: "Hours at Event", value: String(format: "%.1f", hours))
@@ -193,9 +230,64 @@ struct LogbookEntryDetailView: View {
                 }
             }
 
-            // Performed By
+            // Reported By (for squawks) or Performed By (for other entries)
             if let performer = entryDetail.performedByName ?? entryDetail.performedByUsername {
-                DetailRow(label: "Performed By", value: performer)
+                let label = entryDetail.categoryName.lowercased().contains("squawk") ? "Reported By" : "Performed By"
+                DetailRow(label: label, value: performer)
+            }
+
+            // Fix information (for squawks)
+            if let fixNotes = entryDetail.fixNotes, !fixNotes.isEmpty {
+                Divider()
+                    .padding(.vertical, 8)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Fix Details")
+                        .font(.headline)
+                        .foregroundColor(.green)
+
+                    // Who Fixed It - Prominent Display
+                    HStack {
+                        Image(systemName: "person.fill.checkmark")
+                            .foregroundColor(.green)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Fixed By")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .textCase(.uppercase)
+                            Text(entryDetail.fixedByName ?? entryDetail.fixedByUsername ?? "Unknown")
+                                .font(.body)
+                                .fontWeight(.bold)
+                        }
+                    }
+
+                    if let fixedAt = entryDetail.fixedAt {
+                        HStack {
+                            Image(systemName: "calendar.badge.clock")
+                                .foregroundColor(.green)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Fixed On")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .textCase(.uppercase)
+                                Text(formatDateTime(fixedAt))
+                                    .font(.body)
+                            }
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("What was done:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
+                        Text(fixNotes)
+                            .font(.body)
+                    }
+                }
+                .padding()
+                .background(Color.green.opacity(0.1))
+                .cornerRadius(8)
             }
         }
     }
@@ -341,15 +433,40 @@ struct LogbookEntryDetailView: View {
     }
 
     private func formatDateTime(_ dateString: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        guard let date = formatter.date(from: dateString) else {
-            return dateString
+        return DateFormatting.formatLongDateTime(dateString)
+    }
+
+    private func severityColor(_ severity: String, status: String?) -> Color {
+        // If squawk is fixed, grey out the severity color
+        let statusLower = status?.lowercased() ?? ""
+        if statusLower == "fixed" || statusLower == "completed" || statusLower == "resolved" || statusLower == "closed" {
+            return .gray
         }
 
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateStyle = .long
-        displayFormatter.timeStyle = .short
-        return displayFormatter.string(from: date)
+        // Otherwise show severity color
+        switch severity.lowercased() {
+        case "routine":
+            return .gray
+        case "caution":
+            return .orange
+        case "urgent":
+            return .red
+        default:
+            return .gray
+        }
+    }
+
+    private func statusColor(_ status: String) -> Color {
+        switch status.lowercased() {
+        case "active", "open":
+            return .orange
+        case "deferred":
+            return .yellow
+        case "fixed", "completed":
+            return .green
+        default:
+            return .blue
+        }
     }
 }
 

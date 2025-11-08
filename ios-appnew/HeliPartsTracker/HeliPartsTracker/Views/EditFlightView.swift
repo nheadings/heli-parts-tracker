@@ -237,7 +237,6 @@ struct EditFlightView: View {
 
         Task {
             do {
-                let formatter = ISO8601DateFormatter()
                 let tachTime = hobbsEndValue - hobbsStartValue
 
                 let flightCreate = FlightCreate(
@@ -245,8 +244,8 @@ struct EditFlightView: View {
                     hobbsEnd: hobbsEndValue,
                     flightTime: flightTimeValue > 0 ? flightTimeValue : nil,
                     tachTime: tachTime,
-                    departureTime: formatter.string(from: departureTime),
-                    arrivalTime: formatter.string(from: arrivalTime),
+                    departureTime: DateFormatting.toISO8601String(from: departureTime),
+                    arrivalTime: DateFormatting.toISO8601String(from: arrivalTime),
                     hobbsPhotoUrl: nil,
                     ocrConfidence: nil,
                     notes: notes.isEmpty ? nil : notes

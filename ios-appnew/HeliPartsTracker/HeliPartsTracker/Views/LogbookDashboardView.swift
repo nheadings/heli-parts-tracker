@@ -473,14 +473,7 @@ struct RecentFluidsCard: View {
     }
 
     private func formatDate(_ dateString: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        if let date = formatter.date(from: dateString) {
-            let displayFormatter = DateFormatter()
-            displayFormatter.dateStyle = .medium
-            displayFormatter.timeStyle = .none
-            return displayFormatter.string(from: date)
-        }
-        return dateString
+        return DateFormatting.formatDate(dateString)
     }
 }
 
@@ -553,14 +546,7 @@ struct RecentInstallationsCard: View {
     }
 
     private func formatDate(_ dateString: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        if let date = formatter.date(from: dateString) {
-            let displayFormatter = DateFormatter()
-            displayFormatter.dateStyle = .medium
-            displayFormatter.timeStyle = .none
-            return displayFormatter.string(from: date)
-        }
-        return dateString
+        return DateFormatting.formatDate(dateString)
     }
 }
 

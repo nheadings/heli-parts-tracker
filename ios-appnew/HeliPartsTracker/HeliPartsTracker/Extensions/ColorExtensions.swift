@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 
 extension Color {
     init(hex: String) {
@@ -31,5 +32,113 @@ extension Color {
         let g = Float(components[1])
         let b = Float(components[2])
         return String(format: "#%02lX%02lX%02lX", lroundf(r * 255), lroundf(g * 255), lroundf(b * 255))
+    }
+}
+
+// MARK: - Date Formatting Utilities
+enum DateFormatting {
+    /// Formats an ISO8601 date string to local time with date and time (no seconds)
+    /// Example: "Nov 7, 2025 at 3:45 PM"
+    static func formatDateTime(_ dateString: String) -> String {
+        // Try parsing with fractional seconds first
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        var date = formatter.date(from: dateString)
+
+        // If that fails, try without fractional seconds
+        if date == nil {
+            formatter.formatOptions = [.withInternetDateTime]
+            date = formatter.date(from: dateString)
+        }
+
+        guard let validDate = date else {
+            return dateString
+        }
+
+        let displayFormatter = DateFormatter()
+        displayFormatter.dateStyle = .medium
+        displayFormatter.timeStyle = .short  // Shows time without seconds
+        displayFormatter.timeZone = .current  // Explicitly use device's local timezone
+        return displayFormatter.string(from: validDate)
+    }
+
+    /// Formats an ISO8601 date string to local date only (no time)
+    /// Example: "Nov 7, 2025"
+    static func formatDate(_ dateString: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        var date = formatter.date(from: dateString)
+        if date == nil {
+            formatter.formatOptions = [.withInternetDateTime]
+            date = formatter.date(from: dateString)
+        }
+
+        guard let validDate = date else {
+            return dateString
+        }
+
+        let displayFormatter = DateFormatter()
+        displayFormatter.dateStyle = .medium
+        displayFormatter.timeStyle = .none
+        displayFormatter.timeZone = .current  // Explicitly use device's local timezone
+        return displayFormatter.string(from: validDate)
+    }
+
+    /// Formats an ISO8601 date string to short date and time (no seconds)
+    /// Example: "11/7/25, 3:45 PM"
+    static func formatShortDateTime(_ dateString: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        var date = formatter.date(from: dateString)
+        if date == nil {
+            formatter.formatOptions = [.withInternetDateTime]
+            date = formatter.date(from: dateString)
+        }
+
+        guard let validDate = date else {
+            return dateString
+        }
+
+        let displayFormatter = DateFormatter()
+        displayFormatter.dateStyle = .short
+        displayFormatter.timeStyle = .short  // Shows time without seconds
+        displayFormatter.timeZone = .current  // Explicitly use device's local timezone
+        return displayFormatter.string(from: validDate)
+    }
+
+    /// Formats an ISO8601 date string to long date and time (no seconds)
+    /// Example: "November 7, 2025 at 3:45 PM"
+    static func formatLongDateTime(_ dateString: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        var date = formatter.date(from: dateString)
+        if date == nil {
+            formatter.formatOptions = [.withInternetDateTime]
+            date = formatter.date(from: dateString)
+        }
+
+        guard let validDate = date else {
+            return dateString
+        }
+
+        let displayFormatter = DateFormatter()
+        displayFormatter.dateStyle = .long
+        displayFormatter.timeStyle = .short  // Shows time without seconds
+        displayFormatter.timeZone = .current  // Explicitly use device's local timezone
+        return displayFormatter.string(from: validDate)
+    }
+
+    /// Converts a Date object to ISO8601 string in UTC timezone for sending to backend
+    /// Example: Date(2025-11-07 8:18 PM EST) -> "2025-11-08T01:18:00Z"
+    static func toISO8601String(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        // ISO8601DateFormatter automatically uses UTC, but let's be explicit
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
     }
 }

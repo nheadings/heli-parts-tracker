@@ -240,6 +240,8 @@ struct LogbookEntryDetail: Codable, Identifiable {
     let tailNumber: String
     let performedByUsername: String?
     let performedByName: String?
+    let fixedByUsername: String?
+    let fixedByName: String?
 
     // Attachments
     let attachments: [LogbookAttachment]
@@ -268,6 +270,8 @@ struct LogbookEntryDetail: Codable, Identifiable {
         case tailNumber = "tail_number"
         case performedByUsername = "performed_by_username"
         case performedByName = "performed_by_name"
+        case fixedByUsername = "fixed_by_username"
+        case fixedByName = "fixed_by_name"
         case attachments
     }
 
@@ -288,6 +292,8 @@ struct LogbookEntryDetail: Codable, Identifiable {
         tailNumber = try container.decode(String.self, forKey: .tailNumber)
         performedByUsername = try? container.decodeIfPresent(String.self, forKey: .performedByUsername)
         performedByName = try? container.decodeIfPresent(String.self, forKey: .performedByName)
+        fixedByUsername = try? container.decodeIfPresent(String.self, forKey: .fixedByUsername)
+        fixedByName = try? container.decodeIfPresent(String.self, forKey: .fixedByName)
         attachments = try container.decode([LogbookAttachment].self, forKey: .attachments)
 
         // Specialized fields

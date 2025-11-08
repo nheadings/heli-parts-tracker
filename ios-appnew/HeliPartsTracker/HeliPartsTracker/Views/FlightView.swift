@@ -3,13 +3,14 @@ import Combine
 
 struct FlightView: View {
     @EnvironmentObject var helicoptersViewModel: HelicoptersViewModel
+    @EnvironmentObject var authViewModel: AuthViewModel
     @StateObject private var viewModel = FlightViewModel()
     @StateObject private var flightTimer = FlightTimerManager()
 
     @State private var selectedHelicopterIndex = 0
     @State private var showingHobbsScanner = false
     @State private var showingAddSquawk = false
-    @State private var showingSquawkDetails: Squawk? = nil
+    @State private var showingSquawkDetails: LogbookEntry? = nil
     @State private var showingSquawksSheet = false
     @State private var showingEditFlight = false
     @State private var editingFlight: Flight? = nil
@@ -21,173 +22,31 @@ struct FlightView: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 0) {
-                if helicoptersViewModel.helicopters.isEmpty {
-                    // Loading or empty state
-                    ProgressView("Loading helicopters...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    // Aircraft Banner
-                    aircraftBanner
-
-                    // Flight Timer Section
-                    flightTimerSection
-
-                    // Flights Section
-                    flightsSection
-                }
-            }
-            .navigationTitle("Flight Operations")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarTitleDisplayMode(.inlineLarge)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text("Flight Operations")
-                        .font(.system(size: 28, weight: .bold))
-                }
-
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if let currentHours = selectedHelicopter?.currentHours, currentHours > 0 {
-                        VStack(spacing: 1) {
-                            Text("Hobbs")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(String(format: "%.1f", currentHours))
-                                .font(.system(size: 22, weight: .bold))
-                                .foregroundColor(.blue)
-                        }
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 10)
-                        .background(Color.blue.opacity(0.1))
-                        .cornerRadius(8)
-                    }
-                }
-            }
-            .sheet(isPresented: $showingHobbsScanner) {
-                HobbsScannerView(
-                    helicopterId: selectedHelicopter?.id ?? 0,
-                    currentHours: selectedHelicopter?.currentHours ?? 0,
-                    onHobbsScanned: { hours in
-                        viewModel.updateHobbsHours(hours: hours, helicopterId: selectedHelicopter?.id ?? 0)
-                        Task {
-                            // Reload everything after Hobbs scan
-                            await helicoptersViewModel.loadHelicopters()
-                            if let helicopter = selectedHelicopter {
-                                await viewModel.loadFlights(helicopterId: helicopter.id)
-                                await viewModel.loadMaintenanceStatus(helicopterId: helicopter.id)
-                            }
-                        }
-                    },
-                    scanOnly: false,
-                    autoOpenCamera: false
-                )
-            }
-            .sheet(isPresented: $showingAddSquawk) {
-                AddSquawkView(
-                    helicopterId: selectedHelicopter?.id ?? 0,
-                    onSquawkAdded: {
-                        Task {
-                            await viewModel.loadSquawks(helicopterId: selectedHelicopter?.id ?? 0)
-                            // Also reload helicopters and flights in case this affected anything
-                            await helicoptersViewModel.loadHelicopters()
-                            if let helicopter = selectedHelicopter {
-                                await viewModel.loadFlights(helicopterId: helicopter.id)
-                            }
-                        }
-                    }
-                )
-            }
-            .sheet(item: $showingSquawkDetails) { squawk in
-                SquawkDetailView(
-                    squawk: squawk,
-                    onSquawkUpdated: {
-                        Task {
-                            await viewModel.loadSquawks(helicopterId: selectedHelicopter?.id ?? 0)
-                            // Reload helicopters in case squawk affected anything
-                            await helicoptersViewModel.loadHelicopters()
-                        }
-                    }
-                )
-            }
-            .sheet(isPresented: $showingSquawksSheet) {
-                SquawksSheetView(
-                    viewModel: viewModel,
-                    helicopterId: selectedHelicopter?.id ?? 0,
-                    showingAddSquawk: $showingAddSquawk,
-                    showingSquawkDetails: $showingSquawkDetails
-                )
-            }
-            .sheet(isPresented: $showingEditFlight) {
-                if let helicopterId = selectedHelicopter?.id {
-                    EditFlightView(
-                        helicopterId: helicopterId,
-                        existingFlight: editingFlight,
-                        prefilledData: prefilledFlightData,
-                        onSave: {
-                            Task {
-                                // Reload helicopter hours first to ensure accurate calculations
-                                await helicoptersViewModel.loadHelicopters()
-                                // Small delay to ensure data is fully propagated
-                                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                                // Then reload maintenance status with updated hours
-                                await viewModel.loadMaintenanceStatus(helicopterId: helicopterId)
-                                // Finally reload flights to show updated flight list
-                                await viewModel.loadFlights(helicopterId: helicopterId)
-                            }
-                        }
-                    )
-                }
-            }
-            .sheet(item: $selectedMaintenanceItem) { item in
-                if let helicopter = selectedHelicopter {
-                    AddLogbookEntryView(
-                        defaultHelicopterId: helicopter.id,
-                        defaultCategoryId: item.logbookCategoryId,
-                        defaultDescription: "\(item.title) completed",
-                        onSave: {
-                            Task {
-                                // Reload helicopter hours first to ensure accurate calculations
-                                await helicoptersViewModel.loadHelicopters()
-                                // Then reload maintenance status with updated hours
-                                await viewModel.loadMaintenanceStatus(helicopterId: helicopter.id)
-                                // Reload flights to show any updated data
-                                await viewModel.loadFlights(helicopterId: helicopter.id)
-                            }
-                        }
-                    )
-                    .environmentObject(helicoptersViewModel)
-                    .environmentObject(UnifiedLogbookViewModel())
-                }
-            }
+            contentView
         }
-        .alert("Cancel Flight?", isPresented: $showingCancelFlightAlert) {
-            Button("Cancel Flight", role: .destructive) {
-                flightTimer.cancelFlight()
-            }
-            Button("Keep Flying", role: .cancel) {}
-        } message: {
-            Text("Are you sure you want to cancel this flight? All flight data will be lost.")
-        }
-        .alert("Delete Flight?", isPresented: $showingDeleteFlightAlert) {
-            Button("Delete", role: .destructive) {
-                if let flight = flightToDelete {
-                    deleteFlight(flight)
-                }
-            }
-            Button("Cancel", role: .cancel) {
-                flightToDelete = nil
-            }
-        } message: {
-            if let flight = flightToDelete {
-                if let departureTime = flight.departureTime {
-                    Text("Are you sure you want to delete the flight from \(formatDate(departureTime))? This action cannot be undone.")
-                } else {
-                    Text("Are you sure you want to delete this flight? This action cannot be undone.")
-                }
-            } else {
-                Text("Are you sure you want to delete this flight? This action cannot be undone.")
-            }
-        }
+        .modifier(FlightViewSheets(
+            showingHobbsScanner: $showingHobbsScanner,
+            showingAddSquawk: $showingAddSquawk,
+            showingSquawkDetails: $showingSquawkDetails,
+            showingSquawksSheet: $showingSquawksSheet,
+            showingEditFlight: $showingEditFlight,
+            selectedMaintenanceItem: $selectedMaintenanceItem,
+            selectedHelicopter: selectedHelicopter,
+            viewModel: viewModel,
+            helicoptersViewModel: helicoptersViewModel,
+            authViewModel: authViewModel,
+            editingFlight: editingFlight,
+            prefilledFlightData: prefilledFlightData
+        ))
+        .modifier(FlightViewAlerts(
+            showingCancelFlightAlert: $showingCancelFlightAlert,
+            showingDeleteFlightAlert: $showingDeleteFlightAlert,
+            flightToDelete: flightToDelete,
+            flightTimer: flightTimer,
+            deleteFlight: deleteFlight,
+            clearFlightToDelete: { flightToDelete = nil },
+            formatDate: formatDate
+        ))
         .task {
             await helicoptersViewModel.loadHelicopters()
             if let helicopter = selectedHelicopter {
@@ -202,6 +61,44 @@ struct FlightView: View {
                     await viewModel.loadFlights(helicopterId: helicopter.id)
                     await viewModel.loadSquawks(helicopterId: helicopter.id)
                     await viewModel.loadMaintenanceStatus(helicopterId: helicopter.id)
+                }
+            }
+        }
+    }
+
+    private var contentView: some View {
+        VStack(spacing: 0) {
+            if helicoptersViewModel.helicopters.isEmpty {
+                ProgressView("Loading helicopters...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                aircraftBanner
+                flightTimerSection
+                flightsSection
+            }
+        }
+        .navigationTitle("Flight Operations")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarTitleDisplayMode(.inlineLarge)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Flight Operations")
+                    .font(.system(size: 28, weight: .bold))
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if let currentHours = selectedHelicopter?.currentHours, currentHours > 0 {
+                    VStack(spacing: 1) {
+                        Text("Hobbs")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(String(format: "%.1f", currentHours))
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundColor(.blue)
+                    }
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 10)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(8)
                 }
             }
         }
@@ -318,6 +215,7 @@ struct FlightView: View {
         let backgroundColor = Color(hex: item.color)
         let percentageRemaining = (item.hoursRemaining / item.intervalHours) * 100
         let textColor = getTextColorForPercentage(percentageRemaining)
+        let hasNoPreviousEntry = item.lastCompletedHours == nil
 
         return VStack(spacing: 4) {
             Text(item.title)
@@ -326,14 +224,21 @@ struct FlightView: View {
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
 
-            Text("\(Int(item.hoursRemaining))")
-                .font(.title)
-                .fontWeight(.bold)
-                .foregroundColor(textColor)
+            if hasNoPreviousEntry {
+                Text("add entry")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+            } else {
+                Text("\(Int(item.hoursRemaining))")
+                    .font(.title)
+                    .fontWeight(.bold)
+                    .foregroundColor(textColor)
 
-            Text("hours")
-                .font(.caption2)
-                .foregroundColor(.white.opacity(0.7))
+                Text("hours")
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.7))
+            }
         }
         .frame(maxWidth: .infinity)
         .padding()
@@ -673,156 +578,7 @@ struct FlightView: View {
     }
 
     private func formatDate(_ dateString: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        guard let date = formatter.date(from: dateString) else {
-            return dateString
-        }
-
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateStyle = .medium
-        displayFormatter.timeStyle = .short
-        return displayFormatter.string(from: date)
-    }
-
-    // MARK: - Squawks Section
-
-    private var squawksSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Section Header
-            HStack {
-                Text("Squawks")
-                    .font(.headline)
-                    .padding()
-
-                Spacer()
-            }
-            .background(Color(.systemGroupedBackground))
-
-            if viewModel.isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if viewModel.squawks.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "checkmark.circle")
-                        .font(.system(size: 60))
-                        .foregroundColor(.green)
-                    Text("No Squawks")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
-                    Text("Aircraft is clear for operation")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding()
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        // Active Squawks
-                        ForEach(activeSquawks) { squawk in
-                            squawkRow(squawk: squawk)
-                                .onTapGesture {
-                                    showingSquawkDetails = squawk
-                                }
-                        }
-
-                        // Fixed Squawks Header
-                        if !fixedSquawks.isEmpty {
-                            Text("Fixed")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding()
-                                .background(Color(.systemGroupedBackground))
-                        }
-
-                        // Fixed Squawks
-                        ForEach(fixedSquawks) { squawk in
-                            squawkRow(squawk: squawk)
-                                .opacity(0.6)
-                                .onTapGesture {
-                                    showingSquawkDetails = squawk
-                                }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var activeSquawks: [Squawk] {
-        viewModel.squawks.filter { $0.status == .active || $0.status == .deferred }
-    }
-
-    private var fixedSquawks: [Squawk] {
-        viewModel.squawks.filter { $0.status == .fixed }
-    }
-
-    private func squawkRow(squawk: Squawk) -> some View {
-        HStack(spacing: 12) {
-            // Severity indicator
-            Rectangle()
-                .fill(severityColor(squawk.severity))
-                .frame(width: 6)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(squawk.title)
-                    .font(.headline)
-
-                if let description = squawk.description, !description.isEmpty {
-                    Text(description)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                }
-
-                HStack {
-                    Text(squawk.severity.displayName)
-                        .font(.caption2)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(severityColor(squawk.severity).opacity(0.2))
-                        .foregroundColor(severityColor(squawk.severity))
-                        .cornerRadius(4)
-
-                    Text(formatDate(squawk.reportedAt))
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-
-                    Spacer()
-
-                    if squawk.status == .fixed {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                    }
-                }
-            }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .padding()
-        .background(Color(.systemBackground))
-        .overlay(
-            Rectangle()
-                .fill(Color(.separator))
-                .frame(height: 0.5),
-            alignment: .bottom
-        )
-    }
-
-    private func severityColor(_ severity: SquawkSeverity) -> Color {
-        switch severity {
-        case .routine:
-            return .gray
-        case .caution:
-            return .orange
-        case .urgent:
-            return .red
-        }
+        return DateFormatting.formatDateTime(dateString)
     }
 
 }
@@ -831,7 +587,8 @@ struct FlightView: View {
 
 @MainActor
 class FlightViewModel: ObservableObject {
-    @Published var squawks: [Squawk] = []
+    @Published var squawks: [Squawk] = []  // Legacy - keeping for compatibility
+    @Published var squawkEntries: [LogbookEntry] = []  // New unified system
     @Published var flights: [Flight] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
@@ -856,7 +613,12 @@ class FlightViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            squawks = try await APIService.shared.getSquawks(helicopterId: helicopterId)
+            // Load squawks from unified logbook system (category_id = 8 for Squawk)
+            squawkEntries = try await APIService.shared.getLogbookEntries(
+                helicopterId: String(helicopterId),
+                categoryIds: "8",  // Squawk category
+                limit: 100
+            )
         } catch {
             errorMessage = "Failed to load squawks: \(error.localizedDescription)"
             print("Error loading squawks: \(error)")
@@ -900,7 +662,7 @@ struct SquawksSheetView: View {
     @ObservedObject var viewModel: FlightViewModel
     let helicopterId: Int
     @Binding var showingAddSquawk: Bool
-    @Binding var showingSquawkDetails: Squawk?
+    @Binding var showingSquawkDetails: LogbookEntry?
 
     var body: some View {
         NavigationView {
@@ -928,7 +690,7 @@ struct SquawksSheetView: View {
                 if viewModel.isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if viewModel.squawks.isEmpty {
+                } else if viewModel.squawkEntries.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "checkmark.circle")
                             .font(.system(size: 60))
@@ -945,29 +707,22 @@ struct SquawksSheetView: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            // Active Squawks
-                            if !activeSquawks.isEmpty {
-                                Section(header: sectionHeader(title: "Active Squawks")) {
-                                    ForEach(activeSquawks) { squawk in
-                                        squawkRow(squawk: squawk)
-                                            .onTapGesture {
-                                                dismiss()
-                                                showingSquawkDetails = squawk
-                                            }
-                                    }
-                                }
-                            }
+                            // Display squawks in specific order: Active, Deferred, Fixed
+                            ForEach(statusDisplayOrder, id: \.self) { statusKey in
+                                let squawksInGroup = groupedSquawks[statusKey] ?? []
 
-                            // Fixed Squawks
-                            if !fixedSquawks.isEmpty {
-                                Section(header: sectionHeader(title: "Fixed")) {
-                                    ForEach(fixedSquawks) { squawk in
-                                        squawkRow(squawk: squawk)
-                                            .opacity(0.6)
-                                            .onTapGesture {
-                                                dismiss()
-                                                showingSquawkDetails = squawk
-                                            }
+                                Section(header: sectionHeader(title: displayNameForStatus(statusKey))) {
+                                    if squawksInGroup.isEmpty {
+                                        emptyStatusMessage(status: displayNameForStatus(statusKey))
+                                    } else {
+                                        ForEach(squawksInGroup) { entry in
+                                            squawkRow(entry: entry)
+                                                .opacity(isFixedStatus(entry.status) ? 0.6 : 1.0)
+                                                .onTapGesture {
+                                                    dismiss()
+                                                    showingSquawkDetails = entry
+                                                }
+                                        }
                                     }
                                 }
                             }
@@ -987,12 +742,46 @@ struct SquawksSheetView: View {
         }
     }
 
-    private var activeSquawks: [Squawk] {
-        viewModel.squawks.filter { $0.status == .active || $0.status == .deferred }
+    private var statusDisplayOrder: [String] {
+        ["active", "deferred", "fixed"]
     }
 
-    private var fixedSquawks: [Squawk] {
-        viewModel.squawks.filter { $0.status == .fixed }
+    private var groupedSquawks: [String: [LogbookEntry]] {
+        var grouped = Dictionary(grouping: viewModel.squawkEntries) { entry -> String in
+            let status = entry.status?.lowercased() ?? "active"
+            // Normalize old statuses
+            if status == "open" || status == "in_progress" || status == "pending" {
+                return "active"
+            }
+            if status == "completed" || status == "resolved" || status == "closed" {
+                return "fixed"
+            }
+            return status
+        }
+        return grouped
+    }
+
+    private func isFixedStatus(_ status: String?) -> Bool {
+        let statusLower = status?.lowercased() ?? ""
+        return statusLower == "fixed" || statusLower == "completed" || statusLower == "resolved" || statusLower == "closed"
+    }
+
+    private func displayNameForStatus(_ status: String) -> String {
+        switch status {
+        case "active": return "Active"
+        case "deferred": return "Deferred"
+        case "fixed": return "Fixed"
+        default: return status.capitalized
+        }
+    }
+
+    private func emptyStatusMessage(status: String) -> some View {
+        Text("No \(status) Squawks")
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(Color(.systemGroupedBackground))
     }
 
     private func sectionHeader(title: String) -> some View {
@@ -1004,33 +793,28 @@ struct SquawksSheetView: View {
             .background(Color(.systemGroupedBackground))
     }
 
-    private func squawkRow(squawk: Squawk) -> some View {
+    private func squawkRow(entry: LogbookEntry) -> some View {
         HStack(spacing: 12) {
-            // Severity Indicator
-            Circle()
-                .fill(severityColor(squawk.severity))
-                .frame(width: 12, height: 12)
-
             VStack(alignment: .leading, spacing: 4) {
-                Text(squawk.title)
+                Text(entry.description)
                     .font(.subheadline)
                     .fontWeight(.medium)
 
-                if let description = squawk.description, !description.isEmpty {
-                    Text(description)
+                if let notes = entry.notes, !notes.isEmpty {
+                    Text(notes)
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .lineLimit(2)
                 }
 
                 HStack {
-                    if let reportedByName = squawk.reportedByName {
-                        Text(reportedByName)
+                    if let performedByName = entry.performedByName {
+                        Text(performedByName)
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
 
-                    Text(formatDate(squawk.reportedAt))
+                    Text(formatDate(entry.eventDate))
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -1044,28 +828,196 @@ struct SquawksSheetView: View {
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(severityColor(entry.severity, status: entry.status), lineWidth: 4)
+        )
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
     }
 
-    private func severityColor(_ severity: SquawkSeverity) -> Color {
-        switch severity {
-        case .routine:
+    private func severityColor(_ severity: String?, status: String?) -> Color {
+        // If squawk is fixed, grey out the severity color
+        let statusLower = status?.lowercased() ?? ""
+        if statusLower == "fixed" || statusLower == "completed" || statusLower == "resolved" || statusLower == "closed" {
             return .gray
-        case .caution:
+        }
+
+        // Otherwise show severity color
+        switch severity?.lowercased() {
+        case "routine":
+            return .gray
+        case "caution":
             return .orange
-        case .urgent:
+        case "urgent":
             return .red
+        default:
+            return .gray
         }
     }
 
     private func formatDate(_ dateString: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        guard let date = formatter.date(from: dateString) else {
-            return dateString
-        }
+        return DateFormatting.formatShortDateTime(dateString)
+    }
+}
 
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateStyle = .short
-        displayFormatter.timeStyle = .short
-        return displayFormatter.string(from: date)
+// MARK: - View Modifiers
+
+struct FlightViewSheets: ViewModifier {
+    @Binding var showingHobbsScanner: Bool
+    @Binding var showingAddSquawk: Bool
+    @Binding var showingSquawkDetails: LogbookEntry?
+    @Binding var showingSquawksSheet: Bool
+    @Binding var showingEditFlight: Bool
+    @Binding var selectedMaintenanceItem: FlightViewMaintenance?
+    let selectedHelicopter: Helicopter?
+    @ObservedObject var viewModel: FlightViewModel
+    @ObservedObject var helicoptersViewModel: HelicoptersViewModel
+    @ObservedObject var authViewModel: AuthViewModel
+    let editingFlight: Flight?
+    let prefilledFlightData: EditFlightView.PrefilledFlightData?
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $showingHobbsScanner) {
+                HobbsScannerView(
+                    helicopterId: selectedHelicopter?.id ?? 0,
+                    currentHours: selectedHelicopter?.currentHours ?? 0,
+                    onHobbsScanned: { hours in
+                        viewModel.updateHobbsHours(hours: hours, helicopterId: selectedHelicopter?.id ?? 0)
+                        Task {
+                            await helicoptersViewModel.loadHelicopters()
+                            if let helicopter = selectedHelicopter {
+                                await viewModel.loadFlights(helicopterId: helicopter.id)
+                                await viewModel.loadMaintenanceStatus(helicopterId: helicopter.id)
+                            }
+                        }
+                    },
+                    scanOnly: false,
+                    autoOpenCamera: false
+                )
+            }
+            .sheet(isPresented: $showingAddSquawk) {
+                if let helicopter = selectedHelicopter {
+                    AddLogbookEntryView(
+                        defaultHelicopterId: helicopter.id,
+                        defaultCategoryId: 8,
+                        defaultDescription: "",
+                        onSave: {
+                            Task {
+                                await viewModel.loadSquawks(helicopterId: helicopter.id)
+                                await helicoptersViewModel.loadHelicopters()
+                                if let heli = selectedHelicopter {
+                                    await viewModel.loadFlights(helicopterId: heli.id)
+                                }
+                            }
+                        }
+                    )
+                    .environmentObject(helicoptersViewModel)
+                    .environmentObject(UnifiedLogbookViewModel())
+                    .environmentObject(authViewModel)
+                }
+            }
+            .sheet(item: $showingSquawkDetails) { entry in
+                LogbookEntryDetailView(
+                    entry: entry,
+                    onUpdate: {
+                        Task {
+                            if let helicopter = selectedHelicopter {
+                                await viewModel.loadSquawks(helicopterId: helicopter.id)
+                            }
+                        }
+                    }
+                )
+                .environmentObject(helicoptersViewModel)
+                .environmentObject(UnifiedLogbookViewModel())
+                .environmentObject(authViewModel)
+            }
+            .sheet(isPresented: $showingSquawksSheet) {
+                SquawksSheetView(
+                    viewModel: viewModel,
+                    helicopterId: selectedHelicopter?.id ?? 0,
+                    showingAddSquawk: $showingAddSquawk,
+                    showingSquawkDetails: $showingSquawkDetails
+                )
+            }
+            .sheet(isPresented: $showingEditFlight) {
+                if let helicopterId = selectedHelicopter?.id {
+                    EditFlightView(
+                        helicopterId: helicopterId,
+                        existingFlight: editingFlight,
+                        prefilledData: prefilledFlightData,
+                        onSave: {
+                            Task {
+                                await helicoptersViewModel.loadHelicopters()
+                                try? await Task.sleep(nanoseconds: 500_000_000)
+                                await viewModel.loadMaintenanceStatus(helicopterId: helicopterId)
+                                await viewModel.loadFlights(helicopterId: helicopterId)
+                            }
+                        }
+                    )
+                }
+            }
+            .sheet(item: $selectedMaintenanceItem) { item in
+                if let helicopter = selectedHelicopter {
+                    AddLogbookEntryView(
+                        defaultHelicopterId: helicopter.id,
+                        defaultCategoryId: item.logbookCategoryId,
+                        defaultDescription: "\(item.title) completed",
+                        onSave: {
+                            Task {
+                                await helicoptersViewModel.loadHelicopters()
+                                await viewModel.loadMaintenanceStatus(helicopterId: helicopter.id)
+                                await viewModel.loadFlights(helicopterId: helicopter.id)
+                            }
+                        }
+                    )
+                    .environmentObject(helicoptersViewModel)
+                    .environmentObject(UnifiedLogbookViewModel())
+                    .environmentObject(authViewModel)
+                }
+            }
+    }
+}
+
+struct FlightViewAlerts: ViewModifier {
+    @Binding var showingCancelFlightAlert: Bool
+    @Binding var showingDeleteFlightAlert: Bool
+    let flightToDelete: Flight?
+    let flightTimer: FlightTimerManager
+    let deleteFlight: (Flight) -> Void
+    let clearFlightToDelete: () -> Void
+    let formatDate: (String) -> String
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Cancel Flight?", isPresented: $showingCancelFlightAlert) {
+                Button("Cancel Flight", role: .destructive) {
+                    flightTimer.cancelFlight()
+                }
+                Button("Keep Flying", role: .cancel) {}
+            } message: {
+                Text("Are you sure you want to cancel this flight? All flight data will be lost.")
+            }
+            .alert("Delete Flight?", isPresented: $showingDeleteFlightAlert) {
+                Button("Delete", role: .destructive) {
+                    if let flight = flightToDelete {
+                        deleteFlight(flight)
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    clearFlightToDelete()
+                }
+            } message: {
+                if let flight = flightToDelete {
+                    if let departureTime = flight.departureTime {
+                        Text("Are you sure you want to delete the flight from \(formatDate(departureTime))? This action cannot be undone.")
+                    } else {
+                        Text("Are you sure you want to delete this flight? This action cannot be undone.")
+                    }
+                } else {
+                    Text("Are you sure you want to delete this flight? This action cannot be undone.")
+                }
+            }
     }
 }

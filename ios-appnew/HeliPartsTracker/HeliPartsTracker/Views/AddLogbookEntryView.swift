@@ -12,6 +12,7 @@ struct AddLogbookEntryView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var helicoptersViewModel: HelicoptersViewModel
     @EnvironmentObject var viewModel: UnifiedLogbookViewModel
+    @EnvironmentObject var authViewModel: AuthViewModel
 
     @State private var selectedHelicopterId: Int = 0
     @State private var selectedCategoryId: Int = 0
@@ -26,7 +27,8 @@ struct AddLogbookEntryView: View {
 
     // Squawk-specific fields
     @State private var severity = "routine"
-    @State private var status = "open"
+    @State private var status = "active"
+    @State private var fixNotes = ""
 
     // Fluid-specific fields
     @State private var fluidType = "oil"
@@ -116,10 +118,31 @@ struct AddLogbookEntryView: View {
                         .pickerStyle(.segmented)
 
                         Picker("Status", selection: $status) {
-                            Text("Open").tag("open")
-                            Text("In Progress").tag("in_progress")
-                            Text("Fixed").tag("fixed")
+                            Text("Active").tag("active")
                             Text("Deferred").tag("deferred")
+                            Text("Fixed").tag("fixed")
+                        }
+
+                        // Show fix notes field when status is Fixed
+                        if status == "fixed" {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text("Fix Notes")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Text("(Required)")
+                                        .font(.caption)
+                                        .foregroundColor(.red)
+                                }
+                                TextField("Describe what was done to fix this squawk", text: $fixNotes, axis: .vertical)
+                                    .textFieldStyle(.roundedBorder)
+                                    .lineLimit(3...6)
+                                if fixNotes.isEmpty {
+                                    Text("Fix notes are required when marking a squawk as fixed")
+                                        .font(.caption2)
+                                        .foregroundColor(.red)
+                                }
+                            }
                         }
                     }
                 }
@@ -399,7 +422,14 @@ struct AddLogbookEntryView: View {
     }
 
     private var isValid: Bool {
-        !description.isEmpty && selectedHelicopterId > 0 && selectedCategoryId > 0
+        let basicValid = !description.isEmpty && selectedHelicopterId > 0 && selectedCategoryId > 0
+
+        // If this is a squawk being marked as fixed, require fix notes
+        if isSquawkCategory && status == "fixed" {
+            return basicValid && !fixNotes.isEmpty
+        }
+
+        return basicValid
     }
 
     private var isSquawkCategory: Bool {
@@ -468,6 +498,28 @@ struct AddLogbookEntryView: View {
                 }
             }
 
+            // Load squawk-specific fields
+            if let existingSeverity = existing.severity {
+                severity = existingSeverity
+            }
+            if let existingStatus = existing.status {
+                status = existingStatus
+            }
+            if let existingFixNotes = existing.fixNotes {
+                fixNotes = existingFixNotes
+            }
+
+            // Load fluid-specific fields
+            if let existingFluidType = existing.fluidType {
+                fluidType = existingFluidType
+            }
+            if let existingQuantity = existing.quantity {
+                quantity = String(format: "%.2f", existingQuantity)
+            }
+            if let existingUnit = existing.unit {
+                unit = existingUnit
+            }
+
             // Load existing attachments
             existingAttachments = existing.attachments
         } else {
@@ -504,14 +556,19 @@ struct AddLogbookEntryView: View {
         errorMessage = nil
         isSaving = true
 
-        let formatter = ISO8601DateFormatter()
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
+
+        // When marking as fixed, capture who fixed it and when
+        let isBeingFixed = isSquawkCategory && status == "fixed"
+        let fixedByUserId = isBeingFixed ? authViewModel.currentUser?.id : nil
+        let fixedAtTime = isBeingFixed ? DateFormatting.toISO8601String(from: Date()) : nil
+        let fixNotesValue = isBeingFixed && !fixNotes.isEmpty ? fixNotes : nil
 
         let entryCreate = LogbookEntryCreate(
             helicopterId: selectedHelicopterId,
             categoryId: selectedCategoryId,
-            eventDate: formatter.string(from: eventDate),
+            eventDate: DateFormatting.toISO8601String(from: eventDate),
             hoursAtEvent: Double(hoursAtEvent),
             description: description,
             notes: notes.isEmpty ? nil : notes,
@@ -523,9 +580,9 @@ struct AddLogbookEntryView: View {
             fluidType: isFluidCategory ? fluidType : nil,
             quantity: isFluidCategory && !quantity.isEmpty ? Double(quantity) : nil,
             unit: isFluidCategory ? unit : nil,
-            fixedBy: nil,
-            fixedAt: nil,
-            fixNotes: nil
+            fixedBy: fixedByUserId,
+            fixedAt: fixedAtTime,
+            fixNotes: fixNotesValue
         )
 
         do {

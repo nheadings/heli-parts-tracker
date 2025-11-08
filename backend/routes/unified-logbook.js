@@ -218,11 +218,14 @@ router.get('/entries', async (req, res) => {
         h.tail_number,
         u.username as performed_by_username,
         u.full_name as performed_by_name,
+        uf.username as fixed_by_username,
+        uf.full_name as fixed_by_name,
         (SELECT COUNT(*)::INTEGER FROM logbook_attachments WHERE entry_id = e.id) as attachment_count
       FROM logbook_entries e
       JOIN logbook_categories c ON e.category_id = c.id
       JOIN helicopters h ON e.helicopter_id = h.id
       LEFT JOIN users u ON e.performed_by = u.id
+      LEFT JOIN users uf ON e.fixed_by = uf.id
       WHERE 1=1
     `;
     const params = [];
@@ -293,11 +296,14 @@ router.get('/entries/:id', async (req, res) => {
         c.color as category_color,
         h.tail_number,
         u.username as performed_by_username,
-        u.full_name as performed_by_name
+        u.full_name as performed_by_name,
+        uf.username as fixed_by_username,
+        uf.full_name as fixed_by_name
       FROM logbook_entries e
       JOIN logbook_categories c ON e.category_id = c.id
       JOIN helicopters h ON e.helicopter_id = h.id
       LEFT JOIN users u ON e.performed_by = u.id
+      LEFT JOIN users uf ON e.fixed_by = uf.id
       WHERE e.id = $1`,
       [id]
     );
@@ -442,11 +448,14 @@ router.put('/entries/:id', async (req, res) => {
         h.tail_number,
         u.username as performed_by_username,
         u.full_name as performed_by_name,
+        uf.username as fixed_by_username,
+        uf.full_name as fixed_by_name,
         (SELECT COUNT(*)::INTEGER FROM logbook_attachments WHERE entry_id = e.id) as attachment_count
       FROM logbook_entries e
       JOIN logbook_categories c ON e.category_id = c.id
       JOIN helicopters h ON e.helicopter_id = h.id
       LEFT JOIN users u ON e.performed_by = u.id
+      LEFT JOIN users uf ON e.fixed_by = uf.id
       WHERE e.id = $1`,
       [id]
     );

@@ -563,6 +563,7 @@ struct FlightViewMaintenance: Codable, Identifiable {
     let color: String
     let displayOrder: Int
     let thresholdWarning: Int
+    let lastCompletedHours: Double?
     let nextDueHours: Double?
     let hoursRemaining: Double
     let logbookCategoryId: Int?
@@ -572,6 +573,7 @@ struct FlightViewMaintenance: Codable, Identifiable {
         case intervalHours = "interval_hours"
         case displayOrder = "display_order"
         case thresholdWarning = "threshold_warning"
+        case lastCompletedHours = "last_completed_hours"
         case nextDueHours = "next_due_hours"
         case hoursRemaining = "hours_remaining"
         case logbookCategoryId = "logbook_category_id"
@@ -591,6 +593,13 @@ struct FlightViewMaintenance: Codable, Identifiable {
             intervalHours = Double(hoursString) ?? 0
         } else {
             intervalHours = try container.decode(Double.self, forKey: .intervalHours)
+        }
+
+        // Handle lastCompletedHours as either String or Double
+        if let completedString = try? container.decodeIfPresent(String.self, forKey: .lastCompletedHours) {
+            lastCompletedHours = Double(completedString)
+        } else {
+            lastCompletedHours = try container.decodeIfPresent(Double.self, forKey: .lastCompletedHours)
         }
 
         // Handle nextDueHours as either String or Double
