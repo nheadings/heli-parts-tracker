@@ -19,6 +19,9 @@ struct FlightView: View {
     @State private var flightToDelete: Flight? = nil
     @State private var showingDeleteFlightAlert = false
     @State private var selectedMaintenanceItem: FlightViewMaintenance? = nil
+    @State private var showingPreFlightCheck = false
+    @State private var currentOilLevel = ""
+    @State private var oilAdded = ""
 
     var body: some View {
         NavigationView {
@@ -41,10 +44,14 @@ struct FlightView: View {
         .modifier(FlightViewAlerts(
             showingCancelFlightAlert: $showingCancelFlightAlert,
             showingDeleteFlightAlert: $showingDeleteFlightAlert,
+            showingPreFlightCheck: $showingPreFlightCheck,
+            currentOilLevel: $currentOilLevel,
+            oilAdded: $oilAdded,
             flightToDelete: flightToDelete,
             flightTimer: flightTimer,
             deleteFlight: deleteFlight,
             clearFlightToDelete: { flightToDelete = nil },
+            startFlight: startFlight,
             formatDate: formatDate
         ))
         .task {
@@ -167,7 +174,7 @@ struct FlightView: View {
                         .cornerRadius(10)
                 }
 
-                Button(action: { startFlight() }) {
+                Button(action: { showingPreFlightCheck = true }) {
                     Label("Start Flight", systemImage: "timer")
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -416,8 +423,52 @@ struct FlightView: View {
 
     private func startFlight() {
         guard let helicopter = selectedHelicopter else { return }
-        let currentHobbs = helicopter.currentHours ?? 0
-        flightTimer.startFlight(helicopterId: helicopter.id, currentHobbs: currentHobbs)
+
+        Task {
+            // Log oil if provided
+            if !currentOilLevel.isEmpty, let oilLevelQuarts = Double(currentOilLevel) {
+                // If oil was added, create a logbook entry
+                if !oilAdded.isEmpty, let oilAddedQuarts = Double(oilAdded) {
+                    let oilCategoryId = 4 // Fluid Addition category
+                    let entryCreate = LogbookEntryCreate(
+                        helicopterId: helicopter.id,
+                        categoryId: oilCategoryId,
+                        eventDate: DateFormatting.toISO8601String(from: Date()),
+                        hoursAtEvent: helicopter.currentHours,
+                        description: "Oil added before flight",
+                        notes: "Current oil level: \(oilLevelQuarts) qts, Added: \(oilAddedQuarts) qts",
+                        cost: nil,
+                        nextDueHours: nil,
+                        nextDueDate: nil,
+                        severity: nil,
+                        status: nil,
+                        fluidType: "oil",
+                        quantity: oilAddedQuarts,
+                        unit: "quarts",
+                        fixedBy: nil,
+                        fixedAt: nil,
+                        fixNotes: nil
+                    )
+
+                    do {
+                        _ = try await APIService.shared.createLogbookEntry(entry: entryCreate)
+                        print("✅ Oil addition logged to database")
+                    } catch {
+                        print("❌ Failed to log oil: \(error)")
+                    }
+                }
+            }
+
+            // Start the flight
+            await MainActor.run {
+                let currentHobbs = helicopter.currentHours ?? 0
+                flightTimer.startFlight(helicopterId: helicopter.id, currentHobbs: currentHobbs)
+
+                // Reset oil fields
+                currentOilLevel = ""
+                oilAdded = ""
+            }
+        }
     }
 
     private func endFlight() {
@@ -983,14 +1034,33 @@ struct FlightViewSheets: ViewModifier {
 struct FlightViewAlerts: ViewModifier {
     @Binding var showingCancelFlightAlert: Bool
     @Binding var showingDeleteFlightAlert: Bool
+    @Binding var showingPreFlightCheck: Bool
+    @Binding var currentOilLevel: String
+    @Binding var oilAdded: String
     let flightToDelete: Flight?
     let flightTimer: FlightTimerManager
     let deleteFlight: (Flight) -> Void
     let clearFlightToDelete: () -> Void
+    let startFlight: () -> Void
     let formatDate: (String) -> String
 
     func body(content: Content) -> some View {
         content
+            .sheet(isPresented: $showingPreFlightCheck) {
+                PreFlightCheckView(
+                    currentOilLevel: $currentOilLevel,
+                    oilAdded: $oilAdded,
+                    onConfirm: {
+                        showingPreFlightCheck = false
+                        startFlight()
+                    },
+                    onCancel: {
+                        showingPreFlightCheck = false
+                        currentOilLevel = ""
+                        oilAdded = ""
+                    }
+                )
+            }
             .alert("Cancel Flight?", isPresented: $showingCancelFlightAlert) {
                 Button("Cancel Flight", role: .destructive) {
                     flightTimer.cancelFlight()
@@ -1019,5 +1089,85 @@ struct FlightViewAlerts: ViewModifier {
                     Text("Are you sure you want to delete this flight? This action cannot be undone.")
                 }
             }
+    }
+}
+
+// MARK: - Pre-Flight Check View
+
+struct PreFlightCheckView: View {
+    @Binding var currentOilLevel: String
+    @Binding var oilAdded: String
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+
+    var canStartFlight: Bool {
+        !currentOilLevel.isEmpty && Double(currentOilLevel) != nil
+    }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Pre-Flight Oil Check"),
+                       footer: Text("Record current oil level before each flight. Add oil quantity if you added oil.")) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Current Oil Level (quarts)")
+                                .font(.subheadline)
+                            Text("*")
+                                .foregroundColor(.red)
+                        }
+                        TextField("Enter current oil level", text: $currentOilLevel)
+                            .keyboardType(.decimalPad)
+                            .textFieldStyle(.roundedBorder)
+
+                        if currentOilLevel.isEmpty {
+                            Text("Required before starting flight")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Oil Added (quarts)")
+                            .font(.subheadline)
+                        TextField("Enter amount if oil was added", text: $oilAdded)
+                            .keyboardType(.decimalPad)
+                            .textFieldStyle(.roundedBorder)
+
+                        Text("Optional - only enter if you added oil")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                if !oilAdded.isEmpty {
+                    Section {
+                        HStack {
+                            Image(systemName: "info.circle.fill")
+                                .foregroundColor(.blue)
+                            Text("A fluid log entry will be created recording the oil addition")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Pre-Flight Check")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        onCancel()
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Start Flight") {
+                        onConfirm()
+                    }
+                    .disabled(!canStartFlight)
+                    .fontWeight(.bold)
+                }
+            }
+        }
     }
 }

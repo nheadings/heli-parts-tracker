@@ -1,11 +1,17 @@
 import SwiftUI
 import AVFoundation
 import Vision
+import AudioToolbox
+import UIKit
 
-struct DetectedText: Identifiable {
+struct DetectedText: Identifiable, Equatable {
     let id = UUID()
     let text: String
     let boundingBox: CGRect
+
+    static func == (lhs: DetectedText, rhs: DetectedText) -> Bool {
+        return lhs.text == rhs.text && lhs.boundingBox == rhs.boundingBox
+    }
 }
 
 struct ScanOverlayView: View {
@@ -29,8 +35,8 @@ struct ScanOverlayView: View {
                     )
                     .blendMode(.destinationOut)
 
-                // Border around scan region
-                RoundedRectangle(cornerRadius: 12)
+                // Simple border around scan region
+                RoundedRectangle(cornerRadius: 8)
                     .stroke(Color.green, lineWidth: 3)
                     .frame(
                         width: scanRegion.width * geometry.size.width,
@@ -51,21 +57,20 @@ struct QRScannerView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var partsViewModel: PartsViewModel
     @State private var detectedTexts: [DetectedText] = []
-    @State private var selectedText: String?
+    @State private var searchedTexts: Set<String> = [] // Track what we've already searched
+    @State private var currentlySearching: Set<String> = [] // Track ongoing searches
     @State private var foundPart: Part?
-    @State private var showingNotFound = false
     @State private var isFrozen = false
-    @State private var notFoundText: String = ""
-    @State private var showingAddPart = false
+    @State private var zoomFactor: CGFloat = 1.0
+    @State private var lastSuccessfulScan: Date?
 
-    // Define scan region (center rectangle with 16:9 aspect ratio)
-    // For 16:9 on iPhone screen, width must be ~3.85x height in normalized coords
-    let scanRegion = CGRect(x: 0.275, y: 0.4, width: 0.45, height: 0.117)
+    // Define scan region (small, centered rectangle)
+    let scanRegion = CGRect(x: 0.3, y: 0.42, width: 0.4, height: 0.08)
 
     var body: some View {
         NavigationView {
             ZStack {
-                TextScannerViewRepresentable(detectedTexts: $detectedTexts, scanRegion: scanRegion, isFrozen: $isFrozen)
+                TextScannerViewRepresentable(detectedTexts: $detectedTexts, scanRegion: scanRegion, isFrozen: $isFrozen, zoomFactor: $zoomFactor)
                     .edgesIgnoringSafeArea(.all)
 
                 // Dimmed overlay with cutout
@@ -73,57 +78,72 @@ struct QRScannerView: View {
                     ScanOverlayView(scanRegion: scanRegion)
                 }
 
-                // Draw bounding boxes over detected text
+                // Draw detected text in scan region
                 GeometryReader { geometry in
                     ForEach(detectedTexts) { detected in
                         let box = detected.boundingBox
-                        let width = box.width * geometry.size.width
-                        let height = box.height * geometry.size.height
                         let centerX = box.midX * geometry.size.width
                         let centerY = box.midY * geometry.size.height
+                        let isSearching = currentlySearching.contains(detected.text)
+                        let wasSearched = searchedTexts.contains(detected.text)
 
-                        Button(action: {
-                            selectedText = detected.text
-                            searchForPart(detected.text)
-                        }) {
-                            VStack(spacing: 2) {
+                        VStack(spacing: 0) {
+                            HStack(spacing: 4) {
                                 Text(detected.text)
-                                    .font(.system(size: 24, weight: .bold))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(Color.green.opacity(0.9))
-                                    .foregroundColor(.white)
-                                    .cornerRadius(4)
-
-                                RoundedRectangle(cornerRadius: 4)
-                                    .stroke(Color.green, lineWidth: 3)
-                                    .frame(width: width, height: height)
+                                    .font(.system(size: 18, weight: .bold, design: .monospaced))
+                                if isSearching {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                        .tint(.white)
+                                } else if wasSearched {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(.red.opacity(0.8))
+                                }
                             }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(isSearching ? Color.blue.opacity(0.9) :
+                                       wasSearched ? Color.gray.opacity(0.7) : Color.green.opacity(0.9))
+                            .foregroundColor(.white)
+                            .cornerRadius(4)
                         }
-                        .position(x: centerX, y: centerY)
+                        .position(x: centerX, y: centerY - 20)
+                    }
+                }
+                .onChange(of: detectedTexts) { newTexts in
+                    // Auto-search new detections
+                    for detected in newTexts {
+                        if !searchedTexts.contains(detected.text) && !currentlySearching.contains(detected.text) {
+                            searchForPart(detected.text)
+                        }
                     }
                 }
 
                 VStack {
                     Spacer()
 
-                    if let text = selectedText {
+                    if !currentlySearching.isEmpty {
                         VStack(spacing: 8) {
-                            Text("Selected: \(text)")
-                                .font(.headline)
-                            Text("Searching...")
-                                .font(.subheadline)
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .tint(.white)
+                                Text("Searching...")
+                                    .font(.headline)
+                            }
+                            Text("\(searchedTexts.count) checked, \(currentlySearching.count) searching")
+                                .font(.caption)
                         }
                         .padding()
                         .background(Color.blue.opacity(0.8))
                         .foregroundColor(.white)
                         .cornerRadius(10)
                         .padding(.bottom, 20)
-                    } else if !isFrozen {
+                    } else if !detectedTexts.isEmpty {
                         VStack(spacing: 4) {
-                            Text("Tap text to search")
+                            Text("Scanning...")
                                 .font(.headline)
-                            Text("\(detectedTexts.count) part numbers found")
+                            Text("\(detectedTexts.count) detected")
                                 .font(.caption)
                         }
                         .padding()
@@ -131,19 +151,37 @@ struct QRScannerView: View {
                         .foregroundColor(.white)
                         .cornerRadius(10)
                         .padding(.bottom, 20)
-                    } else {
-                        VStack(spacing: 4) {
-                            Text("Frozen - Tap text to search")
-                                .font(.headline)
-                            Text("\(detectedTexts.count) part numbers visible")
-                                .font(.caption)
-                        }
-                        .padding()
-                        .background(Color.orange.opacity(0.8))
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                        .padding(.bottom, 20)
                     }
+
+                    // Zoom control
+                    HStack(spacing: 20) {
+                        Button(action: { adjustZoom(by: -0.5) }) {
+                            Image(systemName: "minus.magnifyingglass")
+                                .font(.system(size: 30))
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Color.black.opacity(0.6))
+                                .clipShape(Circle())
+                        }
+
+                        Text(String(format: "%.1fx", zoomFactor))
+                            .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.black.opacity(0.6))
+                            .cornerRadius(8)
+
+                        Button(action: { adjustZoom(by: 0.5) }) {
+                            Image(systemName: "plus.magnifyingglass")
+                                .font(.system(size: 30))
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Color.black.opacity(0.6))
+                                .clipShape(Circle())
+                        }
+                    }
+                    .padding(.bottom, 10)
 
                     // Control buttons
                     HStack(spacing: 20) {
@@ -178,26 +216,16 @@ struct QRScannerView: View {
                 NavigationView {
                     PartDetailView(part: part)
                         .environmentObject(partsViewModel)
+                        .toolbar {
+                            ToolbarItem(placement: .navigationBarTrailing) {
+                                Button("Done") {
+                                    foundPart = nil
+                                    // Close the scanner when part detail is dismissed
+                                    dismiss()
+                                }
+                            }
+                        }
                 }
-            }
-            .alert("Part Not Found", isPresented: $showingNotFound) {
-                Button("Add New Part") {
-                    showingAddPart = true
-                    selectedText = nil
-                }
-                Button("Add to Filter List") {
-                    addToFilteredWords(notFoundText)
-                    selectedText = nil
-                }
-                Button("Cancel", role: .cancel) {
-                    selectedText = nil
-                }
-            } message: {
-                Text("No part found with number: \(notFoundText)\n\nWhat would you like to do?")
-            }
-            .sheet(isPresented: $showingAddPart) {
-                AddPartView(defaultPartNumber: notFoundText)
-                    .environmentObject(partsViewModel)
             }
         }
     }
@@ -209,94 +237,109 @@ struct QRScannerView: View {
     private func restartScan() {
         isFrozen = false
         detectedTexts = []
-        selectedText = nil
+        searchedTexts.removeAll()
+        currentlySearching.removeAll()
+    }
+
+    private func adjustZoom(by delta: CGFloat) {
+        let newZoom = zoomFactor + delta
+        zoomFactor = max(1.0, min(newZoom, 10.0)) // Clamp between 1x and 10x
+    }
+
+    private func playSuccessSound() {
+        // Play happy beep beep sound
+        AudioServicesPlaySystemSound(1054) // Beep beep
+
+        // Vibrate for haptic feedback
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+    }
+
+    private func normalizePartNumber(_ partNumber: String) -> String {
+        var normalized = partNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Remove common prefixes
+        let prefixes = ["P/N", "PN", "P/N:", "PN:"]
+        for prefix in prefixes {
+            if normalized.uppercased().hasPrefix(prefix) {
+                normalized = String(normalized.dropFirst(prefix.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: ":- "))
+                break
+            }
+        }
+
+        return normalized
     }
 
     private func searchForPart(_ partNumber: String) {
+        // Normalize the part number (strip P/N prefix, trim whitespace)
+        let normalizedPartNumber = normalizePartNumber(partNumber)
+
+        // Skip if too short after normalization
+        guard normalizedPartNumber.count >= 3 else {
+            searchedTexts.insert(partNumber)
+            return
+        }
+
+        // Don't search if we already did or if we're currently searching
+        guard !searchedTexts.contains(partNumber) && !currentlySearching.contains(partNumber) else {
+            return
+        }
+
+        // Mark as currently searching
+        currentlySearching.insert(partNumber)
+
         Task {
             do {
-                // Search the database using the API
-                let response = try await APIService.shared.searchParts(query: partNumber, limit: 10)
+                // Search the database using the normalized part number
+                print("🔍 Searching for normalized: '\(normalizedPartNumber)' (original: '\(partNumber)')")
+                let response = try await APIService.shared.searchParts(query: normalizedPartNumber, limit: 10)
 
-                // Try exact match first
-                if let part = response.parts?.first(where: { $0.partNumber.lowercased() == partNumber.lowercased() }) {
-                    await MainActor.run {
+                await MainActor.run {
+                    // Remove from currently searching
+                    currentlySearching.remove(partNumber)
+                    // Add to searched set
+                    searchedTexts.insert(partNumber)
+
+                    // ONLY accept exact matches (case-insensitive) to prevent OCR errors
+                    // Do NOT accept partial matches - prevents C121-1 matching when scanning C121-17
+                    if let part = response.parts?.first(where: {
+                        $0.partNumber.lowercased() == normalizedPartNumber.lowercased()
+                    }) {
+                        // SUCCESS! Found exact match
+                        print("✅ Exact match found: \(part.partNumber)")
+                        playSuccessSound()
                         foundPart = part
-                        selectedText = nil
-                        detectedTexts = []
-                        isFrozen = false
+                        // Stop scanning but keep scanner open
+                        isFrozen = true
+                    } else {
+                        // No exact match - log for debugging
+                        if let parts = response.parts, !parts.isEmpty {
+                            print("⚠️ No exact match. Found similar: \(parts.map { $0.partNumber }.joined(separator: ", "))")
+                        } else {
+                            print("❌ No results for '\(normalizedPartNumber)'")
+                        }
                     }
-                } else if let part = response.parts?.first {
-                    // Use first result if no exact match
-                    await MainActor.run {
-                        foundPart = part
-                        selectedText = nil
-                        detectedTexts = []
-                        isFrozen = false
-                    }
-                } else {
-                    // No results found
-                    await MainActor.run {
-                        notFoundText = partNumber
-                        showingNotFound = true
-                        selectedText = nil
-                    }
+                    // If no exact match, just mark as searched and continue scanning
                 }
             } catch {
-                print("Search error: \(error)")
+                print("Search error for '\(partNumber)': \(error)")
                 await MainActor.run {
-                    notFoundText = partNumber
-                    showingNotFound = true
-                    selectedText = nil
+                    currentlySearching.remove(partNumber)
+                    searchedTexts.insert(partNumber)
                 }
             }
         }
     }
 
-    private func addToFilteredWords(_ word: String) {
-        // Get the path to FilteredWords.json in the app's documents directory
-        let fileManager = FileManager.default
-        let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let fileURL = documentsURL.appendingPathComponent("FilteredWords.json")
-
-        // Load existing filtered words from Documents directory, or create new file
-        var filteredData: FilteredWordsData
-
-        if let data = try? Data(contentsOf: fileURL),
-           let decoded = try? JSONDecoder().decode(FilteredWordsData.self, from: data) {
-            // File exists in documents, load it
-            filteredData = decoded
-        } else if let bundlePath = Bundle.main.path(forResource: "FilteredWords", ofType: "json"),
-                  let bundleData = try? Data(contentsOf: URL(fileURLWithPath: bundlePath)),
-                  let decoded = try? JSONDecoder().decode(FilteredWordsData.self, from: bundleData) {
-            // Copy from bundle to documents
-            filteredData = decoded
-        } else {
-            // Create new with empty list
-            filteredData = FilteredWordsData(commonWords: [])
-        }
-
-        // Add the new word if it's not already in the list
-        let lowercasedWord = word.lowercased()
-        if !filteredData.commonWords.contains(where: { $0.lowercased() == lowercasedWord }) {
-            var updatedWords = filteredData.commonWords
-            updatedWords.append(word)
-            updatedWords.sort()
-            filteredData = FilteredWordsData(commonWords: updatedWords)
-
-            // Save to documents directory
-            if let encoded = try? JSONEncoder().encode(filteredData) {
-                try? encoded.write(to: fileURL)
-                print("Added '\(word)' to filtered words list")
-            }
-        }
-    }
 }
 
 struct TextScannerViewRepresentable: UIViewControllerRepresentable {
     @Binding var detectedTexts: [DetectedText]
     let scanRegion: CGRect
     @Binding var isFrozen: Bool
+    @Binding var zoomFactor: CGFloat
 
     func makeUIViewController(context: Context) -> TextScannerViewController {
         let controller = TextScannerViewController()
@@ -307,6 +350,7 @@ struct TextScannerViewRepresentable: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: TextScannerViewController, context: Context) {
         uiViewController.isFrozen = isFrozen
+        uiViewController.setZoom(zoomFactor)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -337,28 +381,54 @@ struct FilteredWordsData: Codable {
 class TextScannerViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
     var captureSession: AVCaptureSession!
     var previewLayer: AVCaptureVideoPreviewLayer!
+    var currentDevice: AVCaptureDevice?
     weak var delegate: TextScannerDelegate?
-    var scanRegion: CGRect = CGRect(x: 0.275, y: 0.4, width: 0.45, height: 0.117)
+    var scanRegion: CGRect = CGRect(x: 0.3, y: 0.42, width: 0.4, height: 0.08)
     var isFrozen: Bool = false
     private var lastScanTime: Date?
-    private let scanInterval: TimeInterval = 1.0 // Scan every 1 second
-    private var filteredWords: Set<String> = []
+    private let scanInterval: TimeInterval = 0.5 // Scan every 0.5 seconds
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        // Load filtered words from JSON
-        loadFilteredWords()
-
         view.backgroundColor = UIColor.black
         captureSession = AVCaptureSession()
+        captureSession.sessionPreset = .photo
 
-        guard let videoCaptureDevice = AVCaptureDevice.default(for: .video) else { return }
+        // Use wide angle camera (default) for best flexibility with zoom
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+            print("❌ No camera found")
+            return
+        }
+
+        currentDevice = device
+
+        // Configure camera
+        do {
+            try device.lockForConfiguration()
+
+            // Enable auto focus
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+            }
+
+            // Enable auto exposure
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+            }
+
+            device.unlockForConfiguration()
+            print("✅ Camera configured with zoom support (min: \(device.minAvailableVideoZoomFactor), max: \(device.maxAvailableVideoZoomFactor))")
+        } catch {
+            print("⚠️ Could not configure camera: \(error)")
+        }
+
         let videoInput: AVCaptureDeviceInput
 
         do {
-            videoInput = try AVCaptureDeviceInput(device: videoCaptureDevice)
+            videoInput = try AVCaptureDeviceInput(device: device)
         } catch {
+            print("❌ Failed to create video input: \(error)")
             return
         }
 
@@ -486,53 +556,28 @@ class TextScannerViewController: UIViewController, AVCaptureVideoDataOutputSampl
         try? handler.perform([request])
     }
 
-    private func loadFilteredWords() {
-        // Try to load filtered words from Documents directory first (user customizations)
-        let fileManager = FileManager.default
-        let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let fileURL = documentsURL.appendingPathComponent("FilteredWords.json")
-
-        var filteredData: FilteredWordsData?
-
-        // First try to load from Documents directory (user's custom list)
-        if let data = try? Data(contentsOf: fileURL),
-           let decoded = try? JSONDecoder().decode(FilteredWordsData.self, from: data) {
-            filteredData = decoded
-            print("Loaded filtered words from Documents directory")
-        } else if let bundlePath = Bundle.main.path(forResource: "FilteredWords", ofType: "json"),
-                  let bundleData = try? Data(contentsOf: URL(fileURLWithPath: bundlePath)),
-                  let decoded = try? JSONDecoder().decode(FilteredWordsData.self, from: bundleData) {
-            // Fall back to bundle if no custom list exists
-            filteredData = decoded
-            print("Loaded filtered words from Bundle")
-        }
-
-        if let data = filteredData {
-            // Convert to lowercase set for case-insensitive matching
-            filteredWords = Set(data.commonWords.map { $0.lowercased() })
-            print("Loaded \\(filteredWords.count) filtered words")
-        } else {
-            print("Could not load FilteredWords.json, using empty set")
-        }
-    }
-
     private func looksLikePartNumber(_ text: String) -> Bool {
         // Must be 3-20 characters
         guard text.count >= 3 && text.count <= 20 else { return false }
 
-        // Must contain at least one letter or number
-        let hasAlphanumeric = text.range(of: "[A-Za-z0-9]", options: .regularExpression) != nil
-        guard hasAlphanumeric else { return false }
+        // Must contain at least one digit
+        let hasDigit = text.range(of: "[0-9]", options: .regularExpression) != nil
+        guard hasDigit else { return false }
 
-        // Filter out common words using the loaded dictionary
-        let lowercasedText = text.lowercased()
-        if filteredWords.contains(lowercasedText) {
+        // Must contain at least one letter OR be mostly numbers with separators
+        let hasLetter = text.range(of: "[A-Za-z]", options: .regularExpression) != nil
+
+        // Should mostly be alphanumeric with common separators
+        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+        guard text.rangeOfCharacter(from: allowedCharacters.inverted) == nil else { return false }
+
+        // Reject if it's purely numeric (likely a serial number or other info)
+        let isOnlyNumbers = text.range(of: "^[0-9]+$", options: .regularExpression) != nil
+        if isOnlyNumbers && text.count < 5 {
             return false
         }
 
-        // Should mostly be alphanumeric with common separators
-        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./"))
-        return text.rangeOfCharacter(from: allowedCharacters.inverted) == nil
+        return true
     }
 
     override var prefersStatusBarHidden: Bool {
@@ -541,5 +586,21 @@ class TextScannerViewController: UIViewController, AVCaptureVideoDataOutputSampl
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         return .portrait
+    }
+
+    func setZoom(_ factor: CGFloat) {
+        guard let device = currentDevice else { return }
+
+        do {
+            try device.lockForConfiguration()
+
+            // Clamp zoom factor to device capabilities
+            let clampedFactor = min(max(factor, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+            device.videoZoomFactor = clampedFactor
+
+            device.unlockForConfiguration()
+        } catch {
+            print("⚠️ Could not set zoom: \(error)")
+        }
     }
 }
